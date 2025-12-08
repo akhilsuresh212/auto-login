@@ -99,7 +99,9 @@ async function runLogoutFlow() {
 // Endpoints
 
 app.get('/health', (req, res) => {
-    res.status(200).send('OK');
+    res.status(200).send({
+        message: 'OK'
+    });
 });
 
 app.post('/login', (req, res) => {
