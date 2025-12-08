@@ -81,7 +81,13 @@ async function handleLocationModal(page, actionButtonText) {
 
         // Select the "Work from Home" option
         // Assuming the list renders with standard text elements or list items
-        const wfhOption = page.getByText('Work from Home', { exact: true });
+        // Wait for dropdown options to appear
+        const dropdownBody = page.locator('.dropdown-body');
+        await dropdownBody.waitFor({ state: 'visible', timeout: 5000 });
+
+        // Select the "Work from Home" option
+        // Using specific selector based on user provided HTML structure
+        const wfhOption = page.locator('.dropdown-item .item-label', { hasText: 'Work from Home' });
         await wfhOption.click();
 
         // Click the action button inside the modal (Sign In or Sign Out)
