@@ -1,10 +1,14 @@
+const express = require('express');
 const { chromium } = require('playwright');
-const cron = require('node-cron');
 const config = require('./config/env');
 const authService = require('./services/auth');
 const attendanceService = require('./services/attendance');
 const { logStatus, logError } = require('./services/logService');
 
+const app = express();
+const PORT = process.env.PORT || 8080;
+
+// Helper function for login flow
 async function runLoginFlow() {
     console.log('Starting GreytHR login flow...');
     logStatus('Starting GreytHR login flow.');
@@ -48,6 +52,7 @@ async function runLoginFlow() {
     }
 }
 
+// Helper function for logout flow
 async function runLogoutFlow() {
     console.log('Starting GreytHR logout flow...');
     logStatus('Starting GreytHR logout flow.');
@@ -91,20 +96,29 @@ async function runLogoutFlow() {
     }
 }
 
-console.log('Scheduling login and logout flows with node-cron...');
-logStatus('Scheduling login and logout flows with node-cron.');
-logStatus(`LOGIN_TIME (cron): ${config.LOGIN_TIME}, LOGOUT_TIME (cron): ${config.LOGOUT_TIME}`);
+// Endpoints
 
-console.log(`LOGIN_TIME (cron): ${config.LOGIN_TIME}, LOGOUT_TIME (cron): ${config.LOGOUT_TIME}`);
-
-cron.schedule(config.LOGIN_TIME, () => {
-    logStatus('Cron trigger fired for login-flow.');
-    console.log('Cron trigger fired for login-flow.');
-    runLoginFlow();
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
 });
 
-cron.schedule(config.LOGOUT_TIME, () => {
-    logStatus('Cron trigger fired for logout-flow.');
-    console.log('Cron trigger fired for logout-flow.');
-    runLogoutFlow();
+app.post('/login', (req, res) => {
+    console.log('Received login trigger.');
+    res.status(200).send('Login flow triggered.');
+
+    // Run asynchronously
+    runLoginFlow().catch(err => console.error('Error in async login flow:', err));
+});
+
+app.post('/logout', (req, res) => {
+    console.log('Received logout trigger.');
+    res.status(200).send('Logout flow triggered.');
+
+    // Run asynchronously
+    runLogoutFlow().catch(err => console.error('Error in async logout flow:', err));
+});
+
+app.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+    logStatus(`Server listening on port ${PORT}`);
 });

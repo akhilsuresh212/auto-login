@@ -16,5 +16,8 @@ COPY . .
 # Set environment variable to ensure headless mode in Docker
 ENV HEADLESS=true
 
+# Expose the port the app runs on
+EXPOSE 8080
+
 # Start the application
 CMD ["node", "index.js"]
