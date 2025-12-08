@@ -1,0 +1,18 @@
+services:
+  auto-login:
+    build: .
+    image: auto-login-app
+    container_name: greythr-auto-login
+    restart: unless-stopped
+    volumes:
+      # Mount the current directory for development (optional, good for checking logs)
+      - ./:/app
+      - /app/node_modules
+    env_file:
+      - .env
+    environment:
+      - HEADLESS=true
+    # Shared memory size might need increasing for browser
+    shm_size: '2gb'
+    # IPC host avoids Chrome crashes in Docker
+    ipc: host

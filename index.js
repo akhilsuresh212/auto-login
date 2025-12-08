@@ -11,7 +11,7 @@ async function runLoginFlow() {
     logStatus(`Target URL: ${config.GREYTHR_URL}`);
 
     const browser = await chromium.launch({
-        headless: false,
+        headless: config.HEADLESS,
     });
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -54,7 +54,7 @@ async function runLogoutFlow() {
     logStatus(`Target URL: ${config.GREYTHR_URL}`);
 
     const browser = await chromium.launch({
-        headless: false,
+        headless: config.HEADLESS,
     });
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -108,4 +108,3 @@ cron.schedule(config.LOGOUT_TIME, () => {
     console.log('Cron trigger fired for logout-flow.');
     runLogoutFlow();
 });
-
