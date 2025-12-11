@@ -1,10 +1,39 @@
 const { logStatus, logError } = require('./logService');
 
 /**
+ * Navigates to the Home Dashboard.
+ * @param {import('playwright').Page} page
+ */
+async function navigateToHome(page) {
+    try {
+        console.log('Navigating to Attendance Page (Home)...');
+        logStatus('Navigating to Attendance Page (Home)...');
+
+        // Selector based on the provided structure: nav -> ... -> a.primary-link -> span.primary-title "Home"
+        const homeLink = page.locator('nav a.primary-link').filter({ hasText: 'Home' }).first();
+
+        if (await homeLink.isVisible()) {
+            await homeLink.click();
+            await page.waitForLoadState('networkidle');
+            logStatus('Navigated to Home.');
+        } else {
+            logError('Home link not visible. Unable to navigate to Attendance page.');
+        }
+    } catch (error) {
+        logError('Error navigating to Attendance Page:', error);
+    }
+}
+
+
+
+/**
  * Checks in the user if not already checked in.
  * @param {import('playwright').Page} page
  */
 async function checkIn(page) {
+    // Ensure we are on the Home Dashboard
+    await navigateToHome(page);
+
     console.log('Checking login status...');
     logStatus('Checking login status for attendance.');
 
@@ -20,26 +49,24 @@ async function checkIn(page) {
 
 
     if (await signInButton.isVisible()) {
-        console.log('User is not signed in. Attempting to sign in...');
         logStatus('User is not signed in. Attempting to sign in.');
         await signInButton.click();
 
         await handleLocationModal(page, 'Sign In');
 
-        console.log('Sign in action performed.');
         logStatus('Sign in action performed from attendance service.');
     } else if (await signOutButton.isVisible()) {
-        console.log('User is already signed in.');
         logStatus('User is already signed in; no attendance action taken.');
     } else {
-        console.log('Could not determine sign-in status. Dashboard might have changed or login failed.');
         logError('Could not determine sign-in status. Dashboard might have changed or login failed.');
-        await page.screenshot({ path: 'debug_status.png' });
+        await page.screenshot({ path: `logs/ss/debug_status_${Date.now()}.png` });
     }
 }
 
 async function checkOut(page) {
-    console.log('Checking login status (Check Out)...');
+    // Ensure we are on the Home Dashboard
+    await navigateToHome(page);
+
     logStatus('Checking login status for attendance (Check Out).');
 
     // Small delay to ensure dynamic content loads
@@ -47,17 +74,15 @@ async function checkOut(page) {
 
     const signOutButton = page.locator('button:has-text("Sign Out"), button:has-text("Web Check-out")').first();
     if (await signOutButton.isVisible()) {
-        console.log('User is signed in. Attempting to sign out...');
         logStatus('User is signed in. Attempting to sign out.');
         await signOutButton.click();
 
         await handleLocationModal(page, 'Sign Out');
 
-        console.log('Sign out action performed.');
         logStatus('Sign out action performed from attendance service.');
     } else {
-        console.log('User is not signed in or Sign Out button not found.');
         logStatus('User is not signed in or Sign Out button not found; cannot check out.');
+        await page.screenshot({ path: `logs/ss/debug_status_${Date.now()}.png` });
     }
 }
 
@@ -114,4 +139,4 @@ async function handleLocationModal(page, actionButtonText) {
     }
 }
 
-module.exports = { checkIn, checkOut };
+module.exports = { checkIn, checkOut, navigateToHome };

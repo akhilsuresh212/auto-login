@@ -1,12 +1,10 @@
-const express = require('express');
 const { chromium } = require('playwright');
+const cron = require('node-cron');
 const config = require('./config/env');
 const authService = require('./services/auth');
 const attendanceService = require('./services/attendance');
 const { logStatus, logError } = require('./services/logService');
-
-const app = express();
-const PORT = process.env.PORT || 8080;
+const leaveService = require('./services/leaveService');
 
 // Helper function for login flow
 async function runLoginFlow() {
@@ -32,9 +30,22 @@ async function runLoginFlow() {
         await page.waitForLoadState('networkidle');
         logStatus('Dashboard load after login completed.');
 
-        // Utilize Attendance Service
-        await attendanceService.checkIn(page);
-        logStatus('Attendance check-in flow completed.');
+        // Check for leave
+        const isOnLeave = await leaveService.checkLeave(page);
+
+        console.log({
+            isOnLeave
+        })
+
+
+        if (isOnLeave) {
+            console.log('User is on leave today. Skipping attendance check-in.');
+            logStatus('User is on leave today. SKIPPING check-in.');
+        } else {
+            // Utilize Attendance Service
+            await attendanceService.checkIn(page);
+            logStatus('Attendance check-in flow completed.');
+        }
 
     } catch (error) {
         console.error('An error occurred during login flow:', error);
@@ -96,31 +107,23 @@ async function runLogoutFlow() {
     }
 }
 
-// Endpoints
-
-app.get('/health', (req, res) => {
-    res.status(200).send({
-        message: 'OK'
-    });
+// Schedule Login Flow
+console.log(`Scheduling Login Flow for: ${config.LOGIN_TIME}`);
+logStatus(`Scheduling Login Flow for: ${config.LOGIN_TIME}`);
+cron.schedule(config.LOGIN_TIME, () => {
+    logStatus('Triggering scheduled Login Flow...');
+    runLoginFlow().catch(err => logError('Error in scheduled Login Flow', err));
 });
 
-app.post('/login', (req, res) => {
-    console.log('Received login trigger.');
-    res.status(200).send('Login flow triggered.');
-
-    // Run asynchronously
-    runLoginFlow().catch(err => console.error('Error in async login flow:', err));
+// Schedule Logout Flow
+console.log(`Scheduling Logout Flow for: ${config.LOGOUT_TIME}`);
+logStatus(`Scheduling Logout Flow for: ${config.LOGOUT_TIME}`);
+cron.schedule(config.LOGOUT_TIME, () => {
+    logStatus('Triggering scheduled Logout Flow...');
+    runLogoutFlow().catch(err => logError('Error in scheduled Logout Flow', err));
 });
 
-app.post('/logout', (req, res) => {
-    console.log('Received logout trigger.');
-    res.status(200).send('Logout flow triggered.');
+console.log('Scheduler started. Waiting for cron triggers...');
+logStatus('Scheduler started. Waiting for cron triggers...');
 
-    // Run asynchronously
-    runLogoutFlow().catch(err => console.error('Error in async logout flow:', err));
-});
 
-app.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
-    logStatus(`Server listening on port ${PORT}`);
-});

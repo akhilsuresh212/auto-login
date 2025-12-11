@@ -17,5 +17,7 @@ module.exports = {
     GREYTHR_URL,
     GREYTHR_USERNAME,
     GREYTHR_PASSWORD,
+    LOGIN_TIME,
+    LOGOUT_TIME,
     HEADLESS: process.env.HEADLESS === 'true'
 };
