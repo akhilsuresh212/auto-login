@@ -1,142 +1,155 @@
-const { logStatus, logError } = require('./logService');
+const { logStatus, logError } = require("./logService");
 
 /**
  * Navigates to the Home Dashboard.
  * @param {import('playwright').Page} page
  */
 async function navigateToHome(page) {
-    try {
-        console.log('Navigating to Attendance Page (Home)...');
-        logStatus('Navigating to Attendance Page (Home)...');
+  try {
+    console.log("Navigating to Attendance Page (Home)...");
+    logStatus("Navigating to Attendance Page (Home)...");
 
-        // Selector based on the provided structure: nav -> ... -> a.primary-link -> span.primary-title "Home"
-        const homeLink = page.locator('nav a.primary-link').filter({ hasText: 'Home' }).first();
+    // Selector based on the provided structure: nav -> ... -> a.primary-link -> span.primary-title "Home"
+    const homeLink = page
+      .locator("nav a.primary-link")
+      .filter({ hasText: "Home" })
+      .first();
 
-        if (await homeLink.isVisible()) {
-            await homeLink.click();
-            await page.waitForLoadState('networkidle');
-            logStatus('Navigated to Home.');
-        } else {
-            logError('Home link not visible. Unable to navigate to Attendance page.');
-        }
-    } catch (error) {
-        logError('Error navigating to Attendance Page:', error);
+    if (await homeLink.isVisible()) {
+      await homeLink.click();
+      await page.waitForLoadState("networkidle");
+      logStatus("Navigated to Home.");
+    } else {
+      logError("Home link not visible. Unable to navigate to Attendance page.");
     }
+  } catch (error) {
+    logError("Error navigating to Attendance Page:", error);
+  }
 }
 
+/**
+ * Common logic to fetch attendance data.
+ * @param {import('playwright').Page} page
+ */
+async function getAttendanceData(page) {
+  // Set up response promise before navigating to trigger the request
+  const workLocationListingResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/v3/api/dashboard/dashlet/markAttendance") &&
+      response.request().method() === "GET" &&
+      response.status() === 200,
+    { timeout: 15000 }
+  ).catch(() => null);
 
+  // Ensure we are on the Home Dashboard (this may trigger the GET request)
+  await navigateToHome(page);
+
+  let workLocationData;
+  const workLocationListingResponse = await workLocationListingResponsePromise;
+
+  if (workLocationListingResponse) {
+    workLocationData = await workLocationListingResponse.json();
+  } else {
+    logStatus("Timeout waiting for markAttendance GET API via interception, falling back to manual fetch.");
+    try {
+      workLocationData = await page.evaluate(async () => {
+        const res = await fetch('/v3/api/dashboard/dashlet/markAttendance');
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      });
+    } catch (error) {
+      logError("Failed to fetch markAttendance GET request manually.");
+      await page.screenshot({ path: `logs/ss/debug_status_${Date.now()}.png` });
+      return null;
+    }
+  }
+  return workLocationData;
+}
+
+/**
+ * Performs the actual API call for Signin or Signout
+ * @param {import('playwright').Page} page
+ * @param {Object} workLocationData
+ * @param {string} action - 'Signin' or 'Signout'
+ */
+async function performAttendanceAction(page, workLocationData, action) {
+  // Find 'Work from Home' location ID
+  let attLocationId = 39; // Default fallback if not found
+  if (workLocationData.attLocations && Array.isArray(workLocationData.attLocations)) {
+    const wfhLocation = workLocationData.attLocations.find(loc => loc.description === "Work from Home");
+    if (wfhLocation) {
+      attLocationId = wfhLocation.id;
+    }
+  }
+
+  try {
+    const apiResponse = await page.evaluate(async ({ locationId, act }) => {
+      const res = await fetch(`/v3/api/attendance/mark-attendance?action=${act}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          attLocation: locationId,
+          remarks: ""
+        })
+      });
+      if (!res.ok) {
+        throw new Error("HTTP " + res.status);
+      }
+      return res.json();
+    }, { locationId: attLocationId, act: action });
+
+    console.log(`${action} API Response:`, apiResponse);
+    logStatus(`${action} action performed from attendance service via API.`);
+  } catch (apiError) {
+    logError(`Failed to perform ${action} via API:`, apiError);
+    await page.screenshot({ path: `logs/ss/api_${action.toLowerCase()}_failed_${Date.now()}.png` });
+  }
+}
 
 /**
  * Checks in the user if not already checked in.
  * @param {import('playwright').Page} page
  */
 async function checkIn(page) {
-    // Ensure we are on the Home Dashboard
-    await navigateToHome(page);
+  console.log("Checking login status...");
+  logStatus("Checking login status for attendance.");
 
-    console.log('Checking login status...');
-    logStatus('Checking login status for attendance.');
+  const workLocationData = await getAttendanceData(page);
+  if (!workLocationData) return;
 
+  const attendanceInfo = workLocationData.attendanceInfo;
+  const swipeInfo = attendanceInfo && attendanceInfo.swipeInfo;
 
-    // Small delay to ensure dynamic content loads (e.g. if dashboard is fetching status)
-    // A robust app might wait for a specific dashboard element instead, but 3s is a decent heuristic for now
-    await page.waitForTimeout(3000);
-
-    // Potential selectors
-    const signInButton = page.locator('button:has-text("Sign In"), button:has-text("Web Check-in")').first();
-    const signOutButton = page.locator('button:has-text("Sign Out"), button:has-text("Web Check-out")').first();
-
-
-
-    if (await signInButton.isVisible()) {
-        logStatus('User is not signed in. Attempting to sign in.');
-        await signInButton.click();
-
-        await handleLocationModal(page, 'Sign In');
-
-        logStatus('Sign in action performed from attendance service.');
-    } else if (await signOutButton.isVisible()) {
-        logStatus('User is already signed in; no attendance action taken.');
-    } else {
-        logError('Could not determine sign-in status. Dashboard might have changed or login failed.');
-        await page.screenshot({ path: `logs/ss/debug_status_${Date.now()}.png` });
-    }
-}
-
-async function checkOut(page) {
-    // Ensure we are on the Home Dashboard
-    await navigateToHome(page);
-
-    logStatus('Checking login status for attendance (Check Out).');
-
-    // Small delay to ensure dynamic content loads
-    await page.waitForTimeout(3000);
-
-    const signOutButton = page.locator('button:has-text("Sign Out"), button:has-text("Web Check-out")').first();
-    if (await signOutButton.isVisible()) {
-        logStatus('User is signed in. Attempting to sign out.');
-        await signOutButton.click();
-
-        await handleLocationModal(page, 'Sign Out');
-
-        logStatus('Sign out action performed from attendance service.');
-    } else {
-        logStatus('User is not signed in or Sign Out button not found; cannot check out.');
-        await page.screenshot({ path: `logs/ss/debug_status_${Date.now()}.png` });
-    }
+  if (swipeInfo && swipeInfo.firstInTime && !swipeInfo.lastOutTime) {
+    logStatus("User is already signed in; no attendance action taken.");
+  } else {
+    logStatus("User is not signed in. Attempting to sign in via API.");
+    await performAttendanceAction(page, workLocationData, 'Signin');
+  }
 }
 
 /**
- * Handles "Work from Home" or Location selection if needed for both Sign In and Sign Out.
+ * Checks out the user if currently checked in.
  * @param {import('playwright').Page} page
- * @param {string} actionButtonText - The text on the button to click inside the modal (e.g., "Sign In" or "Sign Out")
  */
-async function handleLocationModal(page, actionButtonText) {
-    try {
-        // Wait for the modal header to confirm we are in the flow
-        const modalHeader = page.locator('text="Tell us your work location."');
-        await modalHeader.waitFor({ state: 'visible', timeout: 5000 });
-        console.log(`Work from Home modal detected for ${actionButtonText}.`);
-        logStatus(`Work from Home modal detected for ${actionButtonText}.`);
+async function checkOut(page) {
+  console.log("Checking checkout status...");
+  logStatus("Checking checkout status for attendance.");
 
-        // Click the dropdown trigger
-        // Using locator that pierces shadow DOM automatically in Playwright for open shadow roots
-        const dropdownTrigger = page.locator('gt-dropdown .dropdown-button');
-        await dropdownTrigger.click();
+  const workLocationData = await getAttendanceData(page);
+  if (!workLocationData) return;
 
-        // Select the "Work from Home" option
-        // Assuming the list renders with standard text elements or list items
-        // Wait for dropdown options to appear
-        const dropdownBody = page.locator('.dropdown-body');
-        await dropdownBody.waitFor({ state: 'visible', timeout: 5000 });
+  const attendanceInfo = workLocationData.attendanceInfo;
+  const swipeInfo = attendanceInfo && attendanceInfo.swipeInfo;
 
-        // Select the "Work from Home" option
-        // Using specific selector based on user provided HTML structure
-        const wfhOption = page.locator('.dropdown-item .item-label', { hasText: 'Work from Home' });
-        await wfhOption.click();
-
-        // Click the action button inside the modal (Sign In or Sign Out)
-        const actionButton = page.locator(`button:has-text("${actionButtonText}")`);
-        // Ensure we are clicking the enabled one in the modal, not the one that triggered it (if still visible)
-        // Usually the modal button is distinct. We can filter by visibility.
-        await actionButton.filter({ hasText: actionButtonText }).last().click();
-
-        console.log(`Selected "Work from Home" and clicked ${actionButtonText}.`);
-        logStatus(`Selected "Work from Home" and clicked ${actionButtonText}.`);
-
-    } catch (e) {
-        console.log('No location selection required, modal not found, or interaction failed.');
-        logStatus('No location selection required, modal not found, or interaction failed while handling Work from Home.');
-        // If it was just not found, that's fine (maybe not first login of day), but if found and failed, we log it.
-        if (e && e.message && e.message.includes('Tell us your work location')) {
-            console.log('Modal check skipped (not visible).');
-            logStatus('Work from Home modal not visible; skipping.');
-        } else {
-            console.error('Error handling Work from Home:', e);
-            logError('Error handling Work from Home.', e);
-            await page.screenshot({ path: 'wfh_error.png' });
-        }
-    }
+  if (swipeInfo && swipeInfo.firstInTime && !swipeInfo.lastOutTime) {
+    logStatus("User is signed in. Attempting to sign out via API.");
+    await performAttendanceAction(page, workLocationData, 'Signout');
+  } else {
+    logStatus("User is not signed in or already signed out; no checkout action taken.");
+  }
 }
 
 module.exports = { checkIn, checkOut, navigateToHome };
