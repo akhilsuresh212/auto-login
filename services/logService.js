@@ -12,9 +12,6 @@ function getTimestamp() {
 }
 
 function logStatus(message) {
-
-    console.log(message)
-
     const line = `[${getTimestamp()}] ${message}\n`;
     const filePath = path.join(logsDir, 'login-status.log');
     fs.appendFileSync(filePath, line, { encoding: 'utf8' });

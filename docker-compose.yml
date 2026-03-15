@@ -10,8 +10,11 @@ services:
       - /app/node_modules
     env_file:
       - .env
+      - .env.keys
     environment:
       - HEADLESS=true
+      - DOTENV_PRIVATE_KEY=${DOTENV_PRIVATE_KEY}
+      - TZ=Asia/Kolkata
     # Shared memory size might need increasing for browser
     shm_size: '2gb'
     # IPC host avoids Chrome crashes in Docker
