@@ -1,4 +1,5 @@
 const { logStatus, logError } = require("./logService");
+const { sendFailureEmail } = require("./mailer");
 
 /**
  * Navigates to the Home Dashboard.
@@ -33,13 +34,15 @@ async function navigateToHome(page) {
  */
 async function getAttendanceData(page) {
   // Set up response promise before navigating to trigger the request
-  const workLocationListingResponsePromise = page.waitForResponse(
-    (response) =>
-      response.url().includes("/v3/api/dashboard/dashlet/markAttendance") &&
-      response.request().method() === "GET" &&
-      response.status() === 200,
-    { timeout: 15000 }
-  ).catch(() => null);
+  const workLocationListingResponsePromise = page
+    .waitForResponse(
+      (response) =>
+        response.url().includes("/v3/api/dashboard/dashlet/markAttendance") &&
+        response.request().method() === "GET" &&
+        response.status() === 200,
+      { timeout: 15000 },
+    )
+    .catch(() => null);
 
   // Ensure we are on the Home Dashboard (this may trigger the GET request)
   await navigateToHome(page);
@@ -50,10 +53,12 @@ async function getAttendanceData(page) {
   if (workLocationListingResponse) {
     workLocationData = await workLocationListingResponse.json();
   } else {
-    logStatus("Timeout waiting for markAttendance GET API via interception, falling back to manual fetch.");
+    logStatus(
+      "Timeout waiting for markAttendance GET API via interception, falling back to manual fetch.",
+    );
     try {
       workLocationData = await page.evaluate(async () => {
-        const res = await fetch('/v3/api/dashboard/dashlet/markAttendance');
+        const res = await fetch("/v3/api/dashboard/dashlet/markAttendance");
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.json();
       });
@@ -75,36 +80,57 @@ async function getAttendanceData(page) {
 async function performAttendanceAction(page, workLocationData, action) {
   // Find 'Work from Home' location ID
   let attLocationId = 39; // Default fallback if not found
-  if (workLocationData.attLocations && Array.isArray(workLocationData.attLocations)) {
-    const wfhLocation = workLocationData.attLocations.find(loc => loc.description === "Work from Home");
+  if (
+    workLocationData.attLocations &&
+    Array.isArray(workLocationData.attLocations)
+  ) {
+    const wfhLocation = workLocationData.attLocations.find(
+      (loc) => loc.description === "Work from Home",
+    );
     if (wfhLocation) {
       attLocationId = wfhLocation.id;
     }
   }
 
   try {
-    const apiResponse = await page.evaluate(async ({ locationId, act }) => {
-      const res = await fetch(`/v3/api/attendance/mark-attendance?action=${act}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          attLocation: locationId,
-          remarks: ""
-        })
-      });
-      if (!res.ok) {
-        throw new Error("HTTP " + res.status);
-      }
-      return res.json();
-    }, { locationId: attLocationId, act: action });
+    const apiResponse = await page.evaluate(
+      async ({ locationId, act }) => {
+        const res = await fetch(
+          `/v3/api/attendance/mark-attendance?action=${act}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              attLocation: locationId,
+              remarks: "",
+            }),
+          },
+        );
+        if (!res.ok) {
+          throw new Error("HTTP " + res.status);
+        }
+        return res.json();
+      },
+      { locationId: attLocationId, act: action },
+    );
 
     console.log(`${action} API Response:`, apiResponse);
     logStatus(`${action} action performed from attendance service via API.`);
   } catch (apiError) {
     logError(`Failed to perform ${action} via API:`, apiError);
-    await page.screenshot({ path: `logs/ss/api_${action.toLowerCase()}_failed_${Date.now()}.png` });
+
+    const screenshotPath = `logs/ss/api_${action.toLowerCase()}_failed_${Date.now()}.png`;
+
+    await page.screenshot({ path: screenshotPath });
+    logError(`API ${action} failed. Screenshot captured at ${screenshotPath}`);
+
+    sendFailureEmail(
+      `${action} API Failed for GreytHR Attendance`,
+      `An error occurred while performing ${action} via API in the GreytHR attendance automation.\n\nError Details: ${apiError.message}\n\nPlease check the attached screenshot for more details.`,
+      screenshotPath,
+    );
   }
 }
 
@@ -126,7 +152,7 @@ async function checkIn(page) {
     logStatus("User is already signed in; no attendance action taken.");
   } else {
     logStatus("User is not signed in. Attempting to sign in via API.");
-    await performAttendanceAction(page, workLocationData, 'Signin');
+    await performAttendanceAction(page, workLocationData, "Signin");
   }
 }
 
@@ -146,9 +172,11 @@ async function checkOut(page) {
 
   if (swipeInfo && swipeInfo.firstInTime && !swipeInfo.lastOutTime) {
     logStatus("User is signed in. Attempting to sign out via API.");
-    await performAttendanceAction(page, workLocationData, 'Signout');
+    await performAttendanceAction(page, workLocationData, "Signout");
   } else {
-    logStatus("User is not signed in or already signed out; no checkout action taken.");
+    logStatus(
+      "User is not signed in or already signed out; no checkout action taken.",
+    );
   }
 }
 

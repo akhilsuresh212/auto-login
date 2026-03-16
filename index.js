@@ -5,6 +5,7 @@ const authService = require("./services/auth");
 const attendanceService = require("./services/attendance");
 const { logStatus, logError } = require("./services/logService");
 const leaveService = require("./services/leaveService");
+const { sendFailureEmail } = require("./services/mailer");
 
 async function healthCheck() {
   console.log("Performing health check...");
@@ -147,6 +148,8 @@ const main = async () => {
   if (args.includes("--health")) {
     await healthCheck();
   } else {
+    console.log(`Starting automation for ${config.GREYTHR_USERNAME}`);
+
     // Schedule Login Flow
     console.log(`Scheduling Login Flow for: ${config.LOGIN_TIME}`);
     logStatus(`Scheduling Login Flow for: ${config.LOGIN_TIME}`);
