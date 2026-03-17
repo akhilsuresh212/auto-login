@@ -146,6 +146,10 @@ const main = async (): Promise<void> => {
 
   if (args.includes("--health")) {
     await healthCheck();
+  } else if (args.includes("--login")) {
+    await runLoginFlow();
+  } else if (args.includes("--logout")) {
+    await runLogoutFlow();
   } else {
     console.log(`Starting automation for ${config.GREYTHR_USERNAME}`);
 

@@ -22,3 +22,6 @@ playwright/.cache/
 Thumbs.db
 .idea/
 .vscode/
+
+#build
+./dist
