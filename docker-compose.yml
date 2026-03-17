@@ -4,10 +4,6 @@ services:
     image: auto-login-app
     container_name: greythr-auto-login
     restart: unless-stopped
-    volumes:
-      # Mount the current directory for development (optional, good for checking logs)
-      - ./:/app
-      - /app/node_modules
     env_file:
       - .env
       - .env.keys
@@ -21,8 +17,8 @@ services:
     ipc: host
     # Healthcheck to ensure the container is running properly
     healthcheck:
-      test: ["CMD", "node", "index.js", "--health"]
-      interval: 1m
+      test: ["CMD", "node", "dist/index.js", "--health"]
+      interval: 45m
       timeout: 10s
       retries: 3
       

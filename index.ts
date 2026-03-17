@@ -1,13 +1,12 @@
-const { chromium } = require("playwright");
-const cron = require("node-cron");
-const config = require("./config/env");
-const authService = require("./services/auth");
-const attendanceService = require("./services/attendance");
-const { logStatus, logError } = require("./services/logService");
-const leaveService = require("./services/leaveService");
-const { sendFailureEmail } = require("./services/mailer");
+import { chromium } from "playwright";
+import cron from "node-cron";
+import config from "./config/env";
+import * as authService from "./services/auth";
+import * as attendanceService from "./services/attendance";
+import { logStatus, logError } from "./services/logService";
+import * as leaveService from "./services/leaveService";
 
-async function healthCheck() {
+async function healthCheck(): Promise<void> {
   console.log("Performing health check...");
   logStatus("Performing health check...");
 
@@ -22,7 +21,7 @@ async function healthCheck() {
     await page.waitForLoadState("networkidle");
     console.log("Health check successful: GreytHR is reachable.");
     logStatus("Health check successful: GreytHR is reachable.");
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Health check failed: Unable to reach GreytHR.", error);
     logError("Health check failed: Unable to reach GreytHR.", error);
 
@@ -37,7 +36,7 @@ async function healthCheck() {
 }
 
 // Helper function for login flow
-async function runLoginFlow() {
+async function runLoginFlow(): Promise<void> {
   console.log("Starting GreytHR login flow...");
   logStatus("Starting GreytHR login flow.");
   logStatus(`Target URL: ${config.GREYTHR_URL}`);
@@ -79,7 +78,7 @@ async function runLoginFlow() {
       await attendanceService.checkIn(page);
       logStatus("Attendance check-in flow completed.");
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("An error occurred during login flow:", error);
     logError("Login flow error occurred.", error);
     await page.screenshot({ path: "error_login_flow.png" });
@@ -96,7 +95,7 @@ async function runLoginFlow() {
 }
 
 // Helper function for logout flow
-async function runLogoutFlow() {
+async function runLogoutFlow(): Promise<void> {
   console.log("Starting GreytHR logout flow...");
   logStatus("Starting GreytHR logout flow.");
   logStatus(`Target URL: ${config.GREYTHR_URL}`);
@@ -126,7 +125,7 @@ async function runLogoutFlow() {
     // Utilize Attendance Service
     await attendanceService.checkOut(page);
     logStatus("Attendance check-out flow completed.");
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("An error occurred during logout flow:", error);
     logError("Logout flow error occurred.", error);
     await page.screenshot({ path: "error_logout_flow.png" });
@@ -142,7 +141,7 @@ async function runLogoutFlow() {
   }
 }
 
-const main = async () => {
+const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
 
   if (args.includes("--health")) {

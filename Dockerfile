@@ -1,23 +1,30 @@
-# Use the official Playwright image which includes all system dependencies
-# Using jammy (Ubuntu 22.04) as a stable base
+# ---- Build Stage ----
+FROM mcr.microsoft.com/playwright:v1.57.0-jammy AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+RUN mkdir -p /tmp/runtime-config \
+  && if [ -f .env ]; then cp .env /tmp/runtime-config/.env; fi \
+  && if [ -f .env.keys ]; then cp .env.keys /tmp/runtime-config/.env.keys; fi
+
+# ---- Run Stage ----
 FROM mcr.microsoft.com/playwright:v1.57.0-jammy
 
 WORKDIR /app
 
-# Copy package files first to leverage cache
 COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
-# Install dependencies
-RUN npm ci
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /tmp/runtime-config/ ./
 
-# Copy the rest of the application code
-COPY . .
-
-# Set environment variable to ensure headless mode in Docker
 ENV HEADLESS=true
 
-# Expose the port the app runs on
 EXPOSE 8000
 
-# Start the application
-CMD ["node", "index.js"]
+CMD ["node", "dist/index.js"]

@@ -1,11 +1,32 @@
-const { logStatus, logError } = require("./logService");
-const { sendFailureEmail } = require("./mailer");
+import { Page } from "playwright";
+import { logStatus, logError } from "./logService";
+import { sendFailureEmail } from "./mailer";
 
-/**
- * Navigates to the Home Dashboard.
- * @param {import('playwright').Page} page
- */
-async function navigateToHome(page) {
+interface AttendanceLocation {
+  id: number;
+  description: string;
+}
+
+interface SwipeInfo {
+  firstInTime?: string | null;
+  lastOutTime?: string | null;
+}
+
+interface AttendanceInfo {
+  swipeInfo?: SwipeInfo | null;
+}
+
+interface AttendanceData {
+  attLocations?: AttendanceLocation[];
+  attendanceInfo?: AttendanceInfo | null;
+}
+
+interface AttendanceActionPayload {
+  locationId: number;
+  act: "Signin" | "Signout";
+}
+
+async function navigateToHome(page: Page): Promise<void> {
   try {
     console.log("Navigating to Attendance Page (Home)...");
     logStatus("Navigating to Attendance Page (Home)...");
@@ -23,16 +44,12 @@ async function navigateToHome(page) {
     } else {
       logError("Home link not visible. Unable to navigate to Attendance page.");
     }
-  } catch (error) {
+  } catch (error: unknown) {
     logError("Error navigating to Attendance Page:", error);
   }
 }
 
-/**
- * Common logic to fetch attendance data.
- * @param {import('playwright').Page} page
- */
-async function getAttendanceData(page) {
+async function getAttendanceData(page: Page): Promise<AttendanceData | null> {
   // Set up response promise before navigating to trigger the request
   const workLocationListingResponsePromise = page
     .waitForResponse(
@@ -47,22 +64,23 @@ async function getAttendanceData(page) {
   // Ensure we are on the Home Dashboard (this may trigger the GET request)
   await navigateToHome(page);
 
-  let workLocationData;
+  let workLocationData: AttendanceData;
   const workLocationListingResponse = await workLocationListingResponsePromise;
 
   if (workLocationListingResponse) {
-    workLocationData = await workLocationListingResponse.json();
+    workLocationData =
+      (await workLocationListingResponse.json()) as AttendanceData;
   } else {
     logStatus(
       "Timeout waiting for markAttendance GET API via interception, falling back to manual fetch.",
     );
     try {
-      workLocationData = await page.evaluate(async () => {
+      workLocationData = await page.evaluate(async (): Promise<AttendanceData> => {
         const res = await fetch("/v3/api/dashboard/dashlet/markAttendance");
         if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
+        return (await res.json()) as AttendanceData;
       });
-    } catch (error) {
+    } catch (error: unknown) {
       logError("Failed to fetch markAttendance GET request manually.");
       await page.screenshot({ path: `logs/ss/debug_status_${Date.now()}.png` });
       return null;
@@ -71,21 +89,18 @@ async function getAttendanceData(page) {
   return workLocationData;
 }
 
-/**
- * Performs the actual API call for Signin or Signout
- * @param {import('playwright').Page} page
- * @param {Object} workLocationData
- * @param {string} action - 'Signin' or 'Signout'
- */
-async function performAttendanceAction(page, workLocationData, action) {
-  // Find 'Work from Home' location ID
+async function performAttendanceAction(
+  page: Page,
+  workLocationData: AttendanceData,
+  action: "Signin" | "Signout",
+): Promise<void> {
   let attLocationId = 39; // Default fallback if not found
   if (
     workLocationData.attLocations &&
     Array.isArray(workLocationData.attLocations)
   ) {
     const wfhLocation = workLocationData.attLocations.find(
-      (loc) => loc.description === "Work from Home",
+      (loc: AttendanceLocation) => loc.description === "Work from Home",
     );
     if (wfhLocation) {
       attLocationId = wfhLocation.id;
@@ -94,7 +109,10 @@ async function performAttendanceAction(page, workLocationData, action) {
 
   try {
     const apiResponse = await page.evaluate(
-      async ({ locationId, act }) => {
+      async ({
+        locationId,
+        act,
+      }: AttendanceActionPayload): Promise<unknown> => {
         const res = await fetch(
           `/v3/api/attendance/mark-attendance?action=${act}`,
           {
@@ -118,7 +136,7 @@ async function performAttendanceAction(page, workLocationData, action) {
 
     console.log(`${action} API Response:`, apiResponse);
     logStatus(`${action} action performed from attendance service via API.`);
-  } catch (apiError) {
+  } catch (apiError: unknown) {
     logError(`Failed to perform ${action} via API:`, apiError);
 
     const screenshotPath = `logs/ss/api_${action.toLowerCase()}_failed_${Date.now()}.png`;
@@ -126,19 +144,18 @@ async function performAttendanceAction(page, workLocationData, action) {
     await page.screenshot({ path: screenshotPath });
     logError(`API ${action} failed. Screenshot captured at ${screenshotPath}`);
 
-    sendFailureEmail(
+    const errorMessage =
+      apiError instanceof Error ? apiError.message : String(apiError);
+
+    await sendFailureEmail(
       `${action} API Failed for GreytHR Attendance`,
-      `An error occurred while performing ${action} via API in the GreytHR attendance automation.\n\nError Details: ${apiError.message}\n\nPlease check the attached screenshot for more details.`,
+      `An error occurred while performing ${action} via API in the GreytHR attendance automation.\n\nError Details: ${errorMessage}\n\nPlease check the attached screenshot for more details.`,
       screenshotPath,
     );
   }
 }
 
-/**
- * Checks in the user if not already checked in.
- * @param {import('playwright').Page} page
- */
-async function checkIn(page) {
+async function checkIn(page: Page): Promise<void> {
   console.log("Checking login status...");
   logStatus("Checking login status for attendance.");
 
@@ -156,11 +173,7 @@ async function checkIn(page) {
   }
 }
 
-/**
- * Checks out the user if currently checked in.
- * @param {import('playwright').Page} page
- */
-async function checkOut(page) {
+async function checkOut(page: Page): Promise<void> {
   console.log("Checking checkout status...");
   logStatus("Checking checkout status for attendance.");
 
@@ -180,4 +193,4 @@ async function checkOut(page) {
   }
 }
 
-module.exports = { checkIn, checkOut, navigateToHome };
+export { checkIn, checkOut, navigateToHome };
