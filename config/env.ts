@@ -15,6 +15,10 @@ interface AppConfig {
   SMTP_PASS: string | undefined;
   SMTP_FROM: string | undefined;
   SMTP_TO: string | undefined;
+  TELEGRAM: {
+    botToken: string | undefined;
+    chatId: string | undefined;
+  }
 }
 
 function requireEnv(name: keyof NodeJS.ProcessEnv): string {
@@ -65,6 +69,10 @@ const appConfig: AppConfig = {
   SMTP_PASS: process.env.SMTP_PASS,
   SMTP_FROM: process.env.SMTP_FROM,
   SMTP_TO: process.env.SMTP_TO,
+  TELEGRAM: {
+    botToken: requireEnv("TELEGRAM_BOT_TOKEN"),
+    chatId: requireEnv("TELEGRAM_BOT_MESSAGE_ID"),
+  }
 };
 
 export default appConfig;

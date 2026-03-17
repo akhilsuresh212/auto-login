@@ -5,6 +5,7 @@ import * as authService from "./services/auth";
 import * as attendanceService from "./services/attendance";
 import { logStatus, logError } from "./services/logService";
 import * as leaveService from "./services/leaveService";
+import { sendSuccessMessage, sendFailureMessage } from "./services/telegram";
 
 async function healthCheck(): Promise<void> {
   console.log("Performing health check...");
@@ -73,14 +74,18 @@ async function runLoginFlow(): Promise<void> {
     if (isOnLeave) {
       console.log("User is on leave today. Skipping attendance check-in.");
       logStatus("User is on leave today. SKIPPING check-in.");
+      await sendSuccessMessage("Login Flow (Skipped)", "User is on leave today. Skipped attendance check-in.");
     } else {
       // Utilize Attendance Service
       await attendanceService.checkIn(page);
       logStatus("Attendance check-in flow completed.");
+      await sendSuccessMessage("Login Flow Success", "Attendance check-in completed successfully.");
     }
   } catch (error: unknown) {
     console.error("An error occurred during login flow:", error);
     logError("Login flow error occurred.", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    await sendFailureMessage("Login Flow Failed", errorMessage);
     await page.screenshot({ path: "error_login_flow.png" });
   } finally {
     console.log("Login flow finished. Logging out and closing browser.");
@@ -125,9 +130,12 @@ async function runLogoutFlow(): Promise<void> {
     // Utilize Attendance Service
     await attendanceService.checkOut(page);
     logStatus("Attendance check-out flow completed.");
+    await sendSuccessMessage("Logout Flow Success", "Attendance check-out completed successfully.");
   } catch (error: unknown) {
     console.error("An error occurred during logout flow:", error);
     logError("Logout flow error occurred.", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    await sendFailureMessage("Logout Flow Failed", errorMessage);
     await page.screenshot({ path: "error_logout_flow.png" });
   } finally {
     console.log("Logout flow finished. Logging out and closing browser.");
