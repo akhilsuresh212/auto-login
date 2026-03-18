@@ -37,16 +37,16 @@ This project automates the login and logout process for the GreytHR portal using
 
     Fill in the following details in your `.env` file:
 
-    | Variable | Description | Example |
-    | :--- | :--- | :--- |
-    | `GREYTHR_URL` | URL of your GreytHR portal | `https://example.greythr.com/` |
-    | `GREYTHR_USERNAME` | Your login username | `EMP123` |
-    | `GREYTHR_PASSWORD` | Your login password | `password123` |
-    | `LOGIN_TIME` | Cron expression for login time | `0 9 * * 1-5` (9:00 AM Mon-Fri) |
-    | `LOGOUT_TIME` | Cron expression for logout time | `0 18 * * 1-5` (6:00 PM Mon-Fri) |
-    | `HEADLESS` | Run in headless mode (true/false) | `true` |
-    | `TELEGRAM_BOT_TOKEN` | Token for the Telegram bot | `123456:ABC-DEF1234ghIkl-zyx57W2...` |
-    | `TELEGRAM_BOT_MESSAGE_ID`| Chat ID or username to send msgs to | `@channelname` or `-100123...` |
+    | Variable | Optional | Description | Example |
+    | :--- | :--- | :--- | :--- |
+    | `GREYTHR_URL` | No | URL of your GreytHR portal | `https://example.greythr.com/` |
+    | `GREYTHR_USERNAME` | No | Your login username | `EMP123` |
+    | `GREYTHR_PASSWORD` | No | Your login password | `password123` |
+    | `LOGIN_TIME` | No | Cron expression for login time | `0 9 * * 1-5` (9:00 AM Mon-Fri) |
+    | `LOGOUT_TIME` | No | Cron expression for logout time | `0 18 * * 1-5` (6:00 PM Mon-Fri) |
+    | `HEADLESS` | Yes | Run in headless mode (true/false) | `true` |
+    | `TELEGRAM_BOT_TOKEN` | Yes | Token for the Telegram bot | `123456:ABC-DEF1234ghIkl-zyx57W2...` |
+    | `TELEGRAM_BOT_MESSAGE_ID`| Yes | Chat ID or username to send msgs to | `@channelname` or `-100123...` |
 
 ## Telegram Bot Setup
 
@@ -89,7 +89,7 @@ The application is configured to automatically load encrypted values using the k
 
 To run the application locally:
 ```bash
-node index.js
+npx ts-node index.ts
 ```
 
 ### Docker Execution
@@ -111,7 +111,53 @@ To run the application in a Docker container:
     docker-compose down
     ```
 
+
+## Usage and Commands
+
+The application provides a CLI interface to manage health checks and manual session operations.
+
+### Health Check
+You can verify the application's connectivity and system status using the `--health` flag. This command launches a browser instance to validate whether the GreytHR portal is reachable.
+
+```bash
+npx ts-node index.ts --health
+```
+
+### On-Demand Authentication
+To manually trigger the automated login or logout sequences, use the following flags:
+
+#### Manual Login
+Initiates the automated login flow immediately.
+```bash
+npx ts-node index.ts --login
+```
+
+#### Manual Logout
+Initiates the automated logout flow immediately.
+```bash
+npx ts-node index.ts --logout
+```
+
 ## Development
 
 - **Headless Mode**: Set `HEADLESS=false` in your `.env` file to see the browser UI during development/debugging.
 - **Logs**: Application logs are output to the console and can be persisted if volume mapping is configured.
+
+## Build Process
+
+This project uses [esbuild](https://esbuild.github.io/) to compile and bundle the TypeScript code into a single, optimized JavaScript file.
+
+To build the project for production:
+```bash
+npm run build
+```
+
+**Build Output (`dist` folder)**:
+- The build script runs a TypeScript type-check and then bundles the code into `dist/index.js`.
+- The output file is minified and all internal modules are bundled together, creating a lightweight execution artifact. External node modules (like `playwright`) remain referenced as external packages to prevent bundle bloat.
+- Once built, you can run the raw compiled output using standard Node.js:
+  ```bash
+  npm start
+  # or directly:
+  node dist/index.js
+  ```
