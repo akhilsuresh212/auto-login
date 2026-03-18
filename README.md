@@ -47,6 +47,12 @@ This project automates the login and logout process for the GreytHR portal using
     | `HEADLESS` | Yes | Run in headless mode (true/false) | `true` |
     | `TELEGRAM_BOT_TOKEN` | Yes | Token for the Telegram bot | `123456:ABC-DEF1234ghIkl-zyx57W2...` |
     | `TELEGRAM_BOT_MESSAGE_ID`| Yes | Chat ID or username to send msgs to | `@channelname` or `-100123...` |
+    | `SMTP_HOST` | Yes | SMTP server host address | `smtp.gmail.com` |
+    | `SMTP_PORT` | Yes | SMTP server port | `587` |
+    | `SMTP_USER` | Yes | SMTP server username | `user@example.com` |
+    | `SMTP_PASS` | Yes | SMTP server password | `password123` |
+    | `SMTP_FROM` | Yes | Address to send emails from | `user@example.com` |
+    | `SMTP_TO` | Yes | Address to send emails to | `recipient@example.com` |
 
 ## Telegram Bot Setup
 
