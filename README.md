@@ -9,6 +9,7 @@ This project automates the login and logout process for the GreytHR portal using
 - **Scheduling**: configurable schedules using cron expressions.
 - **Headless Mode**: Supports running in headless mode (default for Docker) or headed mode for debugging.
 - **Secure Configuration**: Uses `@dotenvx/dotenvx` for encrypted environment variable management.
+- **Telegram Notifications**: Real-time alerts for successful and failed login/logout workflows.
 
 ## Prerequisites
 
@@ -44,6 +45,21 @@ This project automates the login and logout process for the GreytHR portal using
     | `LOGIN_TIME` | Cron expression for login time | `0 9 * * 1-5` (9:00 AM Mon-Fri) |
     | `LOGOUT_TIME` | Cron expression for logout time | `0 18 * * 1-5` (6:00 PM Mon-Fri) |
     | `HEADLESS` | Run in headless mode (true/false) | `true` |
+    | `TELEGRAM_BOT_TOKEN` | Token for the Telegram bot | `123456:ABC-DEF1234ghIkl-zyx57W2...` |
+    | `TELEGRAM_BOT_MESSAGE_ID`| Chat ID or username to send msgs to | `@channelname` or `-100123...` |
+
+## Telegram Bot Setup
+
+To receive automated success and failure notifications on Telegram:
+
+1. Open Telegram and search for **@BotFather**.
+2. Send the `/newbot` command and follow the instructions to create a new bot.
+3. Once created, BotFather will provide an **HTTP API Token**. Add this to your `.env` file as `TELEGRAM_BOT_TOKEN`.
+4. Open a chat with your new bot and send it a message (e.g., `/start`).
+5. To get your target Chat ID, visit the following URL in your browser:  
+   `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
+6. Look for the `"chat":{"id":...}` field in the JSON response.
+7. Copy that ID (including any `-` sign if it's a group) and set it as your `TELEGRAM_BOT_MESSAGE_ID` in the `.env` file. (If sending to a public channel, you can use the `@username` of the channel).
 
 ## Encryption with Dotenvx
 
