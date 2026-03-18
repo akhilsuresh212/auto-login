@@ -25,14 +25,10 @@ async function healthCheck(): Promise<void> {
   } catch (error: unknown) {
     console.error("Health check failed: Unable to reach GreytHR.", error);
     logError("Health check failed: Unable to reach GreytHR.", error);
-
-    process.exit(1); // Exit with error code to indicate failure
   } finally {
     await page.close();
     await context.close();
     await browser.close();
-
-    process.exit(0); // Exit with success code to indicate health check passed
   }
 }
 
