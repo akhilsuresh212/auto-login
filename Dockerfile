@@ -1,5 +1,5 @@
 # ---- Build Stage ----
-FROM mcr.microsoft.com/playwright:v1.57.0-jammy AS builder
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
@@ -8,22 +8,25 @@ RUN npm ci
 
 COPY . .
 RUN npm run build
-RUN mkdir -p /tmp/runtime-config \
-  && if [ -f .env ]; then cp .env /tmp/runtime-config/.env; fi \
-  && if [ -f .env.keys ]; then cp .env.keys /tmp/runtime-config/.env.keys; fi
 
 # ---- Run Stage ----
-FROM mcr.microsoft.com/playwright:v1.57.0-jammy
+FROM node:20-slim
+
+ENV HEADLESS=true
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /tmp/runtime-config/ ./
+# Install only Chromium and its system deps (using the exact playwright version installed above)
+RUN npx playwright install --with-deps chromium
 
-ENV HEADLESS=true
+COPY --from=builder /app/dist ./dist
+
+# Copy env files if they exist
+COPY --from=builder /app/.env* ./
 
 EXPOSE 8000
 
