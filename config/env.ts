@@ -18,7 +18,7 @@ interface AppConfig {
   TELEGRAM: {
     botToken: string | undefined;
     chatId: string | undefined;
-  }
+  };
 }
 
 function requireEnv(name: keyof NodeJS.ProcessEnv): string {
@@ -35,8 +35,7 @@ function requireEnv(name: keyof NodeJS.ProcessEnv): string {
 }
 
 const smtpPortValue = process.env.SMTP_PORT?.trim();
-const smtpPort =
-  smtpPortValue ? Number.parseInt(smtpPortValue, 10) : undefined;
+const smtpPort = smtpPortValue ? Number.parseInt(smtpPortValue, 10) : undefined;
 
 if (smtpPortValue && Number.isNaN(smtpPort)) {
   console.error("Error: SMTP_PORT must be a valid number.");
@@ -72,7 +71,7 @@ const appConfig: AppConfig = {
   TELEGRAM: {
     botToken: requireEnv("TELEGRAM_BOT_TOKEN"),
     chatId: requireEnv("TELEGRAM_BOT_MESSAGE_ID"),
-  }
+  },
 };
 
 export default appConfig;

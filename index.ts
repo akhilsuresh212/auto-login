@@ -26,9 +26,9 @@ async function healthCheck(): Promise<void> {
     console.error("Health check failed: Unable to reach GreytHR.", error);
     logError("Health check failed: Unable to reach GreytHR.", error);
   } finally {
-    await page.close();
-    await context.close();
-    await browser.close();
+    await page.close().catch(() => {});
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
   }
 }
 
@@ -85,13 +85,21 @@ async function runLoginFlow(): Promise<void> {
     await page.screenshot({ path: "error_login_flow.png" });
   } finally {
     console.log("Login flow finished. Logging out and closing browser.");
-    await authService.logout(page);
-    await page.close();
-    console.log("Page closed.");
-    await context.close();
-    console.log("Context closed.");
-    await browser.close();
-    console.log("Browser closed.");
+    try {
+      if (!page.isClosed()) {
+        await authService.logout(page);
+      }
+    } catch (logoutError) {
+      console.error("Logout failed during cleanup:", logoutError);
+      logError("Logout failed during cleanup.", logoutError);
+    } finally {
+      await page.close().catch(() => {});
+      console.log("Page closed.");
+      await context.close().catch(() => {});
+      console.log("Context closed.");
+      await browser.close().catch(() => {});
+      console.log("Browser closed.");
+    }
   }
 }
 
@@ -135,13 +143,21 @@ async function runLogoutFlow(): Promise<void> {
     await page.screenshot({ path: "error_logout_flow.png" });
   } finally {
     console.log("Logout flow finished. Logging out and closing browser.");
-    await authService.logout(page);
-    await page.close();
-    console.log("Page closed.");
-    await context.close();
-    console.log("Context closed.");
-    await browser.close();
-    console.log("Browser closed.");
+    try {
+      if (!page.isClosed()) {
+        await authService.logout(page);
+      }
+    } catch (logoutError) {
+      console.error("Logout failed during cleanup:", logoutError);
+      logError("Logout failed during cleanup.", logoutError);
+    } finally {
+      await page.close().catch(() => {});
+      console.log("Page closed.");
+      await context.close().catch(() => {});
+      console.log("Context closed.");
+      await browser.close().catch(() => {});
+      console.log("Browser closed.");
+    }
   }
 }
 
