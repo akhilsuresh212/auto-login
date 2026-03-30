@@ -15,10 +15,14 @@ services:
     shm_size: '2gb'
     # IPC host avoids Chrome crashes in Docker
     ipc: host
-    # Healthcheck to ensure the container is running properly
+    # Healthcheck: verify the scheduler is alive by checking the heartbeat file
+    # written every 60s by the main process. This avoids launching a full
+    # Chromium browser on every check (which timed out at 10s and left orphaned
+    # browser processes that piled up and caused OOM kills).
     healthcheck:
-      test: ["CMD", "node", "dist/index.js", "--health"]
-      interval: 45m
-      timeout: 10s
+      test: ["CMD-SHELL", "node -e \"const fs=require('fs');const age=Date.now()-fs.statSync('/tmp/heartbeat').mtimeMs;if(age>120000)process.exit(1);\""]
+      interval: 2m
+      timeout: 5s
       retries: 3
+      start_period: 90s
       

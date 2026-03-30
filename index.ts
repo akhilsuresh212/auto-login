@@ -1,11 +1,35 @@
-import { chromium } from "playwright";
+import { chromium, Browser, BrowserContext, Page } from "playwright";
 import cron from "node-cron";
+import fs from "fs";
 import config from "./config/env";
 import * as authService from "./services/auth";
 import * as attendanceService from "./services/attendance";
 import { logStatus, logError } from "./services/logService";
 import * as leaveService from "./services/leaveService";
 import { sendSuccessMessage, sendFailureMessage } from "./services/telegram";
+
+const HEARTBEAT_FILE = "/tmp/heartbeat";
+
+function writeHeartbeat(): void {
+  try {
+    fs.writeFileSync(HEARTBEAT_FILE, new Date().toISOString());
+  } catch {
+    // ignore — heartbeat is best-effort
+  }
+}
+
+// Prevent unexpected process exits from unhandled async errors.
+// Node.js v15+ exits by default on unhandledRejection; these handlers keep
+// the scheduler alive and log the problem instead.
+process.on("unhandledRejection", (reason: unknown) => {
+  console.error("Unhandled promise rejection:", reason);
+  logError("Unhandled promise rejection", reason);
+});
+
+process.on("uncaughtException", (error: Error) => {
+  console.error("Uncaught exception:", error);
+  logError("Uncaught exception", error);
+});
 
 async function healthCheck(): Promise<void> {
   console.log("Performing health check...");
@@ -32,19 +56,34 @@ async function healthCheck(): Promise<void> {
   }
 }
 
+// Concurrent-execution guards: prevent a second run from starting if the
+// previous one hasn't finished yet (e.g. slow network or site outage).
+let loginRunning = false;
+let logoutRunning = false;
+
 // Helper function for login flow
 async function runLoginFlow(): Promise<void> {
+  if (loginRunning) {
+    logStatus("Login flow already running. Skipping this trigger.");
+    console.log("Login flow already running. Skipping this trigger.");
+    return;
+  }
+  loginRunning = true;
+
   console.log("Starting GreytHR login flow...");
   logStatus("Starting GreytHR login flow.");
   logStatus(`Target URL: ${config.GREYTHR_URL}`);
 
-  const browser = await chromium.launch({
-    headless: config.HEADLESS,
-  });
-  const context = await browser.newContext();
-  const page = await context.newPage();
+  // Declare outside try so finally can always clean up, even if launch fails.
+  let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
+  let page: Page | null = null;
 
   try {
+    browser = await chromium.launch({ headless: config.HEADLESS });
+    context = await browser.newContext();
+    page = await context.newPage();
+
     console.log("Navigating to login page...");
     logStatus("Navigating to login page.");
     await page.goto(config.GREYTHR_URL);
@@ -63,9 +102,7 @@ async function runLoginFlow(): Promise<void> {
     // Check for leave
     const isOnLeave = await leaveService.checkLeave(page);
 
-    console.log({
-      isOnLeave,
-    });
+    console.log({ isOnLeave });
 
     if (isOnLeave) {
       console.log("User is on leave today. Skipping attendance check-in.");
@@ -82,40 +119,52 @@ async function runLoginFlow(): Promise<void> {
     logError("Login flow error occurred.", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     await sendFailureMessage("Login Flow Failed", errorMessage);
-    await page.screenshot({ path: "error_login_flow.png" });
+    if (page && !page.isClosed()) {
+      await page.screenshot({ path: "error_login_flow.png" }).catch(() => {});
+    }
   } finally {
     console.log("Login flow finished. Logging out and closing browser.");
     try {
-      if (!page.isClosed()) {
+      if (page && !page.isClosed()) {
         await authService.logout(page);
       }
     } catch (logoutError) {
       console.error("Logout failed during cleanup:", logoutError);
       logError("Logout failed during cleanup.", logoutError);
     } finally {
-      await page.close().catch(() => {});
+      await page?.close().catch(() => {});
       console.log("Page closed.");
-      await context.close().catch(() => {});
+      await context?.close().catch(() => {});
       console.log("Context closed.");
-      await browser.close().catch(() => {});
+      await browser?.close().catch(() => {});
       console.log("Browser closed.");
+      loginRunning = false;
     }
   }
 }
 
 // Helper function for logout flow
 async function runLogoutFlow(): Promise<void> {
+  if (logoutRunning) {
+    logStatus("Logout flow already running. Skipping this trigger.");
+    console.log("Logout flow already running. Skipping this trigger.");
+    return;
+  }
+  logoutRunning = true;
+
   console.log("Starting GreytHR logout flow...");
   logStatus("Starting GreytHR logout flow.");
   logStatus(`Target URL: ${config.GREYTHR_URL}`);
 
-  const browser = await chromium.launch({
-    headless: config.HEADLESS,
-  });
-  const context = await browser.newContext();
-  const page = await context.newPage();
+  let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
+  let page: Page | null = null;
 
   try {
+    browser = await chromium.launch({ headless: config.HEADLESS });
+    context = await browser.newContext();
+    page = await context.newPage();
+
     console.log("Navigating to login page for logout flow...");
     logStatus("Navigating to login page for logout flow.");
     await page.goto(config.GREYTHR_URL);
@@ -140,23 +189,26 @@ async function runLogoutFlow(): Promise<void> {
     logError("Logout flow error occurred.", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     await sendFailureMessage("Logout Flow Failed", errorMessage);
-    await page.screenshot({ path: "error_logout_flow.png" });
+    if (page && !page.isClosed()) {
+      await page.screenshot({ path: "error_logout_flow.png" }).catch(() => {});
+    }
   } finally {
     console.log("Logout flow finished. Logging out and closing browser.");
     try {
-      if (!page.isClosed()) {
+      if (page && !page.isClosed()) {
         await authService.logout(page);
       }
     } catch (logoutError) {
       console.error("Logout failed during cleanup:", logoutError);
       logError("Logout failed during cleanup.", logoutError);
     } finally {
-      await page.close().catch(() => {});
+      await page?.close().catch(() => {});
       console.log("Page closed.");
-      await context.close().catch(() => {});
+      await context?.close().catch(() => {});
       console.log("Context closed.");
-      await browser.close().catch(() => {});
+      await browser?.close().catch(() => {});
       console.log("Browser closed.");
+      logoutRunning = false;
     }
   }
 }
@@ -192,6 +244,11 @@ const main = async (): Promise<void> => {
         logError("Error in scheduled Logout Flow", err),
       );
     });
+
+    // Write a heartbeat file every minute so the Docker healthcheck can verify
+    // the scheduler is alive without launching a full Chromium browser.
+    writeHeartbeat();
+    setInterval(writeHeartbeat, 60_000);
 
     console.log("Scheduler started. Waiting for cron triggers...");
     logStatus("Scheduler started. Waiting for cron triggers...");
