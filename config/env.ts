@@ -26,14 +26,36 @@ interface AppConfig {
   /**
    * node-cron expression for the daily check-in run.
    * Example: `"0 9 * * 1-5"` → every weekday at 09:00 local time.
+   * Only required in cron mode (`MODE=cron`).
    */
-  LOGIN_TIME: string;
+  LOGIN_TIME: string | undefined;
 
   /**
    * node-cron expression for the daily check-out run.
    * Example: `"0 18 * * 1-5"` → every weekday at 18:00 local time.
+   * Only required in cron mode (`MODE=cron`).
    */
-  LOGOUT_TIME: string;
+  LOGOUT_TIME: string | undefined;
+
+  /**
+   * Secret key for REST API authentication via the `x-api-key` header.
+   * Only required in server mode (`MODE=server`).
+   */
+  API_KEY: string | undefined;
+
+  /**
+   * Port the Express server listens on in server mode.
+   * Defaults to `8080` when unset (Cloud Run / ECS convention).
+   */
+  PORT: number;
+
+  /**
+   * Runtime mode.
+   * - `"server"` → starts the Express REST API (stateless, cloud-friendly).
+   * - `"cron"`   → starts the node-cron scheduler (stateful, self-hosted).
+   * Defaults to `"cron"` when unset.
+   */
+  MODE: "server" | "cron";
 
   /**
    * Whether to launch Chromium in headless mode.
@@ -139,12 +161,32 @@ if (
  * await page.goto(config.GREYTHR_URL);
  * ```
  */
+// --- PORT validation ---
+const portValue = process.env.PORT?.trim();
+const port = portValue ? Number.parseInt(portValue, 10) : 8080;
+
+if (portValue && Number.isNaN(port)) {
+  console.error("Error: PORT must be a valid number.");
+  process.exit(1);
+}
+
+// --- MODE validation ---
+const rawMode = process.env.MODE?.trim();
+if (rawMode && rawMode !== "server" && rawMode !== "cron") {
+  console.error('Error: MODE must be "server" or "cron".');
+  process.exit(1);
+}
+const appMode = (rawMode as "server" | "cron" | undefined) ?? "cron";
+
 const appConfig: AppConfig = {
   GREYTHR_URL: requireEnv("GREYTHR_URL"),
   GREYTHR_USERNAME: requireEnv("GREYTHR_USERNAME"),
   GREYTHR_PASSWORD: requireEnv("GREYTHR_PASSWORD"),
-  LOGIN_TIME: requireEnv("LOGIN_TIME"),
-  LOGOUT_TIME: requireEnv("LOGOUT_TIME"),
+  LOGIN_TIME: process.env.LOGIN_TIME || undefined,
+  LOGOUT_TIME: process.env.LOGOUT_TIME || undefined,
+  API_KEY: process.env.API_KEY || undefined,
+  PORT: port,
+  MODE: appMode,
   HEADLESS: process.env.HEADLESS === "true",
   SMTP_HOST: process.env.SMTP_HOST,
   SMTP_USER: process.env.SMTP_USER,
