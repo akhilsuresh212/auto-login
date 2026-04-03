@@ -16,20 +16,22 @@ You are an expert AI developer assistant managing the `auto-login` repository.
 ## 3. Architectural Rules & Coding Standards
 When writing, modifying, or refactoring code in this repository, strictly adhere to the following principles:
 
+- **API-First Automation (Crucial)**: Even though Playwright is used, avoid screen traversal and DOM manipulation as much as possible. Always check if an API is available for an action (e.g., `/v3/api/attendance/mark-attendance`) and prefer using `page.evaluate()` to trigger those APIs directly via `fetch` over clicking UI elements.
+- **Strict Garbage Collection (Crucial)**: Always clean up resources immediately. Every Playwright action must ensure that `page`, `context`, and `browser` are explicitly closed in a `finally` block. Never let a headless browser run in the background and consume memory after a task is completed.
+- **Intensive Logging (Crucial)**: Log absolutely everything to the log files. Every state change, API call, network interception, success, and error must be tracked using the internal logging service (`logService.ts`: `logStatus`, `logError`). Do not rely on `console.log` alone.
 - **Clean Architecture & Modularity**: Maintain strict separation of concerns. UI automation (`auth.ts`), API requests (`attendance.ts`), configuration (`env.ts`), and side-effects (`telegram.ts`, `logService.ts`) must remain isolated in their respective domains.
 - **Strict Typing & Validations**: Utilize TypeScript interfaces for all data structures (e.g., `AttendanceLocation`, `AttendanceData`). Ensure explicit return types for all functions.
-- **Consistent Logging**: Never use standard `console.log` for critical state changes alone. Always pair it with the internal logging services (`logStatus`, `logError`) to ensure uniform trace tracking.
-- **Communication Style**: Explanations and documentation should be highly structured, practical, and direct. Avoid verbosity; focus on the "how" and "why" concisely.
-- **Error Handling**: Implement robust `try/catch/finally` blocks, especially for Playwright browser context management. Always ensure `browser`, `context`, and `page` instances are cleanly closed in `finally` blocks to prevent memory leaks.
+- **Error Handling**: Implement robust `try/catch/finally` blocks. Capture screenshots on UI failures before triggering the cleanup sequence.
 
 ## 4. Codebase Navigation & Workflows
 
 ### Directory Structure Awareness
 - `/config/env.ts`: Centralized, validated environment configuration. Exits process immediately if critical variables are missing.
 - `/services/auth.ts`: Handles UI interactions for login and logout using Playwright locators.
-- `/services/attendance.ts`: Intercepts the GreytHR dashboard API (`/v3/api/dashboard/dashlet/markAttendance`) to retrieve state, and uses `fetch` to POST attendance actions (`/v3/api/attendance/mark-attendance?action=Signin/Signout`).
+- `/services/attendance.ts`: Intercepts the GreytHR dashboard API to retrieve state, and uses `fetch` to POST attendance actions via API.
 - `/services/leaveService.ts`: Evaluates if the user is on leave to conditionally skip attendance workflows.
-- `/index.ts`: The main entry point handling CLI arguments and initializing cron schedulers.
+- `/services/logService.ts`: Manages writing intensive logs to the file system (e.g., `login-status.log`, `login-error.log`).
+- `/index.ts`: The main entry point handling CLI arguments, orchestrating workflows, and initializing cron schedulers. Ensures strict garbage collection via `finally` blocks.
 
 ### Core CLI Commands (Agent Execution Skills)
 When asked to test or run specific workflows, use these commands:
@@ -50,4 +52,4 @@ When asked to test or run specific workflows, use these commands:
 
 ## 7. Troubleshooting Guidelines
 - **Playwright Timeouts**: If UI interactions fail, default to capturing a screenshot and triggering the Telegram/Mailer failure functions before closing the browser context.
-- **API Interception Fallbacks**: If the `markAttendance` network request isn't intercepted on load, the system falls back to a manual `page.evaluate()` fetch. Keep this redundancy intact during refactors.
+- **API Interception Fallbacks**: If the `markAttendance` network request is not intercepted on load, the system falls back to a manual `page.evaluate()` fetch. Keep this redundancy intact during refactors.

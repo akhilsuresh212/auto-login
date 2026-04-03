@@ -33,10 +33,7 @@ function isToday(dateInput: string): boolean {
       return false;
     }
 
-    const todayStr = today.toDateString();
-    const checkStr = checkDate.toDateString();
-
-    return todayStr === checkStr;
+    return today.toDateString() === checkDate.toDateString();
   } catch (error: unknown) {
     logError(`Error parsing date: ${dateInput}`, error);
     return false;
@@ -53,7 +50,6 @@ function checkLeaveFromApiData(leaveItems: unknown): boolean {
   }
 
   const typedItems = leaveItems as LeaveItem[];
-
   logStatus(`Processing ${typedItems.length} leave items...`);
 
   for (const item of typedItems) {
@@ -93,79 +89,135 @@ function checkLeaveFromApiData(leaveItems: unknown): boolean {
   return false;
 }
 
+interface LeaveYearsResponse {
+  currentYear: number;
+}
+
+interface Holiday {
+  holidayDate: string;
+  description: string;
+  showHoliday: boolean;
+  restricted: boolean;
+}
+
+interface HolidaysResponse {
+  holidays: Holiday[];
+}
+
+async function checkHoliday(page: Page): Promise<{ isHoliday: boolean; description: string }> {
+  logStatus("Checking if today is a public holiday...");
+
+  try {
+    const yearsData = await page.evaluate(async (): Promise<LeaveYearsResponse> => {
+      const res = await fetch("/v3/api/leave/years");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json() as Promise<LeaveYearsResponse>;
+    });
+
+    const currentYear = yearsData.currentYear;
+    logStatus(`Current fiscal year: ${currentYear}`);
+
+    const holidaysData = await page.evaluate(
+      async (year: number): Promise<HolidaysResponse> => {
+        const res = await fetch(`/v3/api/leave/holidays/${year}`);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json() as Promise<HolidaysResponse>;
+      },
+      currentYear,
+    );
+
+    const todayStr = new Date().toDateString();
+
+    const todayHoliday = holidaysData.holidays.find(
+      (h) => h.showHoliday && !h.restricted && new Date(h.holidayDate).toDateString() === todayStr,
+    );
+
+    if (todayHoliday) {
+      logStatus(`Today is a public holiday: ${todayHoliday.description}. Skipping attendance.`);
+      return { isHoliday: true, description: todayHoliday.description };
+    }
+
+    logStatus("Today is not a public holiday.");
+    return { isHoliday: false, description: "" };
+  } catch (error: unknown) {
+    logError("Error checking holiday status.", error);
+    return { isHoliday: false, description: "" };
+  }
+}
+
+const LEAVE_API_URL = "/v3/api/workflow/my-process-info-list/leave";
+
+async function interceptLeaveTab(page: Page, tabName: string): Promise<boolean> {
+  logStatus(`Checking ${tabName} tab...`);
+
+  const responsePromise = page
+    .waitForResponse(
+      (response) =>
+        response.url().includes(LEAVE_API_URL) &&
+        response.request().method() === "POST" &&
+        response.status() === 200,
+      { timeout: 10000 },
+    )
+    .catch(() => null);
+
+  const tabLocator = page.locator(`.leavewf-links button[title="${tabName}"]`);
+  await tabLocator.waitFor({ state: "visible" });
+  await tabLocator.click();
+
+  try {
+    const response = await responsePromise;
+    if (!response) {
+      logError(`No API response captured for ${tabName} tab.`);
+      return false;
+    }
+    logStatus(`Captured response for ${tabName} tab: ${response.url()}`);
+    const data = (await response.json()) as unknown;
+    logStatus(`API response for ${tabName}: ${JSON.stringify(data)}`);
+    return checkLeaveFromApiData(data);
+  } catch (error: unknown) {
+    logError(`Failed to intercept/parse data for ${tabName}.`, error);
+    return false;
+  }
+}
+
 async function checkLeave(page: Page): Promise<boolean> {
   logStatus("Checking leave status via API...");
 
   try {
-    await page
-      .waitForSelector("#mainSidebar", { state: "visible", timeout: 5000 })
-      .catch(() => undefined);
+    // Derive the leave apply URL from the current page's origin — avoids importing config.
+    const origin = new URL(page.url()).origin;
+    const leaveApplyUrl = `${origin}/v3/portal/ess/leave/apply`;
 
-    const sidebar = page.locator("#mainSidebar");
-    const leaveApplyBtn = sidebar
-      .locator("a.secondary-link")
-      .filter({ hasText: "Leave Apply" })
-      .first();
+    // Set up interception before navigation so we capture the auto-triggered
+    // Pending tab request that fires when the leave apply page loads.
+    const pendingResponsePromise = page
+      .waitForResponse(
+        (response) =>
+          response.url().includes(LEAVE_API_URL) &&
+          response.request().method() === "POST" &&
+          response.status() === 200,
+        { timeout: 15000 },
+      )
+      .catch(() => null);
 
-    if (!(await leaveApplyBtn.isVisible())) {
-      logStatus("Expanding Leave menu...");
-      await sidebar
-        .locator("span.primary-title")
-        .filter({ hasText: /^Leave$/ })
-        .first()
-        .click();
-    }
-
-    await leaveApplyBtn.waitFor({ state: "visible" });
-    await leaveApplyBtn.click();
+    await page.goto(leaveApplyUrl);
     await page.waitForLoadState("networkidle");
     logStatus("Navigated to Leave Apply page.");
 
-    const checkTab = async (tabName: string): Promise<boolean> => {
-      logStatus(`Checking ${tabName} tab...`);
+    const pendingResponse = await pendingResponsePromise;
 
-      const responsePromise = page.waitForResponse(
-        (response) =>
-          response
-            .url()
-            .includes("/v3/api/workflow/my-process-info-list/leave") &&
-          response.request().method() === "POST" &&
-          response.status() === 200,
-      );
+    if (pendingResponse) {
+      logStatus(`Captured auto-triggered Pending response: ${pendingResponse.url()}`);
+      const data = (await pendingResponse.json()) as unknown;
+      logStatus(`API response for Pending: ${JSON.stringify(data)}`);
+      if (checkLeaveFromApiData(data)) return true;
+    } else {
+      // Auto-load didn't fire — manually click the Pending tab.
+      logStatus("Auto-load not detected for Pending tab, clicking explicitly...");
+      if (await interceptLeaveTab(page, "Pending")) return true;
+    }
 
-      const tabLocator = page.locator(`.leavewf-links button[title="${tabName}"]`);
-      await tabLocator.waitFor({ state: "visible" });
-
-      const isAlreadyActive = await tabLocator.evaluate(
-        (element: Element): boolean =>
-          element.classList.contains("btn-primary") ||
-          element.classList.contains("active"),
-      );
-
-      if (isAlreadyActive) {
-        logStatus(`Tab ${tabName} already active. Reloading list...`);
-      }
-
-      await tabLocator.click();
-
-      try {
-        logStatus(`Waiting for API response for ${tabName}...`);
-        const response = await responsePromise;
-        logStatus(`Captured URL: ${response.url()}`);
-
-        const data = (await response.json()) as unknown;
-
-        logStatus(`API response for ${tabName}: ${JSON.stringify(data)}`);
-
-        return checkLeaveFromApiData(data);
-      } catch (error: unknown) {
-        logError(`Failed to intercept/parse data for ${tabName}.`, error);
-        return false;
-      }
-    };
-
-    if (await checkTab("Pending")) return true;
-    if (await checkTab("History")) return true;
+    if (await interceptLeaveTab(page, "History")) return true;
 
     logStatus("No active leave found for today after API check.");
     return false;
@@ -175,4 +227,4 @@ async function checkLeave(page: Page): Promise<boolean> {
   }
 }
 
-export { checkLeave };
+export { checkHoliday, checkLeave };

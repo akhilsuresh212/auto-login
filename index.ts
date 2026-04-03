@@ -99,20 +99,29 @@ async function runLoginFlow(): Promise<void> {
     await page.waitForLoadState("networkidle");
     logStatus("Dashboard load after login completed.");
 
-    // Check for leave
-    const isOnLeave = await leaveService.checkLeave(page);
+    // Check for public holiday
+    const { isHoliday, description: holidayName } = await leaveService.checkHoliday(page);
+    console.log({ isHoliday, holidayName });
 
-    console.log({ isOnLeave });
-
-    if (isOnLeave) {
-      console.log("User is on leave today. Skipping attendance check-in.");
-      logStatus("User is on leave today. SKIPPING check-in.");
-      await sendSuccessMessage("Login Flow (Skipped)", "User is on leave today. Skipped attendance check-in.");
+    if (isHoliday) {
+      console.log(`Today is a public holiday (${holidayName}). Skipping attendance check-in.`);
+      logStatus(`Today is a public holiday (${holidayName}). SKIPPING check-in.`);
+      await sendSuccessMessage("Login Flow (Skipped)", `Today is a public holiday: ${holidayName}. Skipped attendance check-in.`);
     } else {
-      // Utilize Attendance Service
-      await attendanceService.checkIn(page);
-      logStatus("Attendance check-in flow completed.");
-      await sendSuccessMessage("Login Flow Success", "Attendance check-in completed successfully.");
+      // Check for leave
+      const isOnLeave = await leaveService.checkLeave(page);
+      console.log({ isOnLeave });
+
+      if (isOnLeave) {
+        console.log("User is on leave today. Skipping attendance check-in.");
+        logStatus("User is on leave today. SKIPPING check-in.");
+        await sendSuccessMessage("Login Flow (Skipped)", "User is on leave today. Skipped attendance check-in.");
+      } else {
+        // Utilize Attendance Service
+        await attendanceService.checkIn(page);
+        logStatus("Attendance check-in flow completed.");
+        await sendSuccessMessage("Login Flow Success", "Attendance check-in completed successfully.");
+      }
     }
   } catch (error: unknown) {
     console.error("An error occurred during login flow:", error);
