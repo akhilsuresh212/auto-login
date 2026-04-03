@@ -1,14 +1,16 @@
 # Auto Login Automation
 
-This project automates the login, logout, and attendance workflows for the GreytHR portal using Playwright and Node.js. It supports scheduling via cron expressions and can be run locally or within a Docker container.
+This project automates the login, logout, and attendance workflows for the GreytHR portal using Playwright and Node.js. It supports two runtime modes: a **cron scheduler** for persistent self-hosted deployments, and a **REST API server** for stateless cloud deployments (Cloud Run, ECS, etc.).
 
 ## Features
 
 - **Automated Login/Logout**: Authenticates with the GreytHR portal and marks attendance check-in/check-out via the portal's internal REST API.
+- **Dual Runtime Modes**: Run as a persistent cron scheduler (`MODE=cron`) or a stateless Express REST API (`MODE=server`) — same image, different config.
+- **REST API with Authentication**: Exposes `/login`, `/logout`, and `/health` endpoints secured with an `x-api-key` header. Designed for external schedulers (Cloud Scheduler, EventBridge, etc.).
+- **Fire-and-Forget API**: HTTP responses are returned immediately (202 Accepted); Playwright workflows run asynchronously in the background, keeping latency under any cloud timeout.
 - **Public Holiday Detection**: Before marking attendance, the application queries the GreytHR holidays API (`/v3/api/leave/years` + `/v3/api/leave/holidays/{year}`) to automatically skip check-in on mandatory (non-restricted) public holidays.
 - **Personal Leave Detection**: Checks the employee's leave workflow (Pending and History tabs) and skips attendance if the user has an active leave today.
 - **API-First Automation**: All attendance and leave/holiday checks use `page.evaluate(fetch())` to call GreytHR's internal REST APIs directly inside the authenticated browser context, avoiding fragile DOM traversal wherever possible.
-- **Scheduling**: Configurable check-in and check-out schedules using cron expressions.
 - **Headless Mode**: Supports headless mode (default for Docker/server) or headed mode for local debugging.
 - **Secure Configuration**: Uses `@dotenvx/dotenvx` for encrypted environment variable management.
 - **Telegram Notifications**: Real-time alerts for successful flows, skipped days (holiday/leave), and failures.
@@ -45,8 +47,11 @@ This project automates the login, logout, and attendance workflows for the Greyt
    | `GREYTHR_URL` | Yes | Base URL of your GreytHR portal | `https://example.greythr.com` |
    | `GREYTHR_USERNAME` | Yes | Your GreytHR employee username | `EMP123` |
    | `GREYTHR_PASSWORD` | Yes | Your GreytHR password (plain text; the browser encrypts it before sending) | `password123` |
-   | `LOGIN_TIME` | Yes | Cron expression for the daily check-in run | `0 9 * * 1-5` (9:00 AM Mon–Fri) |
-   | `LOGOUT_TIME` | Yes | Cron expression for the daily check-out run | `0 18 * * 1-5` (6:00 PM Mon–Fri) |
+   | `MODE` | No | Runtime mode: `server` (REST API) or `cron` (scheduler). Defaults to `cron`. | `server` |
+   | `API_KEY` | In server mode | Secret key clients must send in the `x-api-key` header | `a-long-random-secret` |
+   | `PORT` | No | Port the Express server listens on. Defaults to `8080`. | `8080` |
+   | `LOGIN_TIME` | In cron mode | Cron expression for the daily check-in run | `0 9 * * 1-5` (9:00 AM Mon–Fri) |
+   | `LOGOUT_TIME` | In cron mode | Cron expression for the daily check-out run | `0 18 * * 1-5` (6:00 PM Mon–Fri) |
    | `HEADLESS` | No | Run Chromium in headless mode (`true`/`false`) | `true` |
    | `TELEGRAM_BOT_TOKEN` | Yes | Token from @BotFather for push notifications | `123456:ABC-DEF...` |
    | `TELEGRAM_BOT_MESSAGE_ID` | Yes | Telegram chat/channel ID to deliver messages to | `-100123456` or `@channel` |
@@ -89,9 +94,76 @@ npx dotenvx decrypt
 ### Running with encrypted env
 The application automatically decrypts values at startup using the key in `.env.keys` or the `DOTENV_PRIVATE_KEY` environment variable. Set `DOTENV_PRIVATE_KEY` in your Docker or CI environment to avoid shipping the `.env.keys` file.
 
+## Runtime Modes
+
+### Cron Mode (self-hosted / persistent VM)
+
+The application runs indefinitely and triggers login/logout on the configured cron schedule. Suitable for a local machine, a VM, or a Docker container that runs 24/7.
+
+```
+MODE=cron  (default)
+Requires: LOGIN_TIME, LOGOUT_TIME
+```
+
+### Server Mode (stateless / cloud)
+
+The application starts an Express HTTP server and exposes endpoints that an external scheduler (Cloud Scheduler, AWS EventBridge, etc.) calls at the desired times. The container does not need to run continuously — cloud services like Cloud Run or ECS can scale it to zero between invocations, and the scheduler wakes it up on demand.
+
+```
+MODE=server
+Requires: API_KEY
+Optional: PORT (default 8080)
+```
+
+The Docker image defaults to `MODE=server` for cloud deployments. Override with `MODE=cron` for self-hosted use.
+
+## REST API
+
+All endpoints are available in `MODE=server`. The `/health` endpoint requires no authentication; all other endpoints require an `x-api-key` header.
+
+### `GET /health`
+
+Liveness check used by Cloud Run / ECS health probes. No authentication required.
+
+```bash
+curl https://your-service/health
+```
+
+```json
+{ "status": "ok", "timestamp": "2026-04-03T09:00:00.000Z" }
+```
+
+### `POST /login`
+
+Triggers the attendance check-in flow. Returns immediately with `202 Accepted`; the Playwright workflow runs in the background.
+
+```bash
+curl -X POST https://your-service/login \
+  -H "x-api-key: your-secret-key"
+```
+
+```json
+{ "message": "Login flow started." }
+```
+
+### `POST /logout`
+
+Triggers the attendance check-out flow. Same fire-and-forget behaviour as `/login`.
+
+```bash
+curl -X POST https://your-service/logout \
+  -H "x-api-key: your-secret-key"
+```
+
+```json
+{ "message": "Logout flow started." }
+```
+
+Concurrent requests to the same endpoint are safe — the existing concurrency guard (`loginRunning` / `logoutRunning`) skips a second trigger if the first flow is still in progress.
+
 ## How It Works
 
-### Login Flow (`--login` / scheduled)
+### Login Flow (`--login` / `POST /login` / scheduled)
 
 ```
 Launch Chromium
@@ -112,7 +184,7 @@ Launch Chromium
   └─ Close browser
 ```
 
-### Logout Flow (`--logout` / scheduled)
+### Logout Flow (`--logout` / `POST /logout` / scheduled)
 
 ```
 Launch Chromium
@@ -153,8 +225,12 @@ Holidays with `restricted: true` are optional; employees choose to take them. If
 ### Local Execution (TypeScript source)
 
 ```bash
-# Start the scheduler (runs indefinitely, triggers on cron schedule)
+# Start the cron scheduler (runs indefinitely)
 npx ts-node index.ts
+
+# Start the REST API server locally
+npx ts-node index.ts --server
+# or: MODE=server npx ts-node index.ts
 
 # Manual check-in now
 npx ts-node index.ts --login
@@ -169,8 +245,11 @@ npx ts-node index.ts --health
 ### Docker Execution
 
 ```bash
-# Build and start in the background
+# Build and start in the background (defaults to MODE=server)
 docker-compose up --build -d
+
+# Run in cron mode (self-hosted)
+docker run -e MODE=cron -e LOGIN_TIME="0 9 * * 1-5" -e LOGOUT_TIME="0 18 * * 1-5" ... auto-login
 
 # Tail logs
 docker-compose logs -f
@@ -178,6 +257,17 @@ docker-compose logs -f
 # Stop and remove the container
 docker-compose down
 ```
+
+### Cloud Deployment (Cloud Run / ECS)
+
+1. Build and push the image — the Dockerfile defaults to `MODE=server`.
+2. Set the following environment variables in your cloud service:
+   - `API_KEY` — the secret your scheduler will send.
+   - `DOTENV_PRIVATE_KEY` — decryption key for your encrypted `.env` (if used).
+   - All GreytHR and Telegram credentials.
+3. Configure your external scheduler (Cloud Scheduler, EventBridge) to call:
+   - `POST /login` at check-in time with header `x-api-key: <API_KEY>`
+   - `POST /logout` at check-out time with header `x-api-key: <API_KEY>`
 
 ## Development
 
@@ -207,10 +297,11 @@ npm start
 ## Architecture
 
 ```
-index.ts                   ← Entry point, cron scheduler, CLI flags
+index.ts                   ← Entry point: CLI flags, mode selection, cron scheduler
 config/
   env.ts                   ← Environment validation, AppConfig object
 services/
+  server.ts                ← Express REST API (/health, /login, /logout) with x-api-key auth
   auth.ts                  ← Playwright login / logout (UI)
   attendance.ts            ← Attendance check-in / check-out (API)
   leaveService.ts          ← Public holiday check (API) + personal leave check (API + interception)

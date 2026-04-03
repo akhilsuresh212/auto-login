@@ -14,6 +14,11 @@ FROM node:20-slim
 
 ENV HEADLESS=true
 ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
+# Default to REST server mode for cloud deployments (Cloud Run, ECS).
+# Override with MODE=cron for self-hosted / persistent VM deployments.
+ENV MODE=server
+# Cloud Run injects PORT automatically; 8080 is the standard fallback.
+ENV PORT=8080
 
 WORKDIR /app
 
@@ -28,6 +33,6 @@ COPY --from=builder /app/dist ./dist
 # Copy env files if they exist
 COPY --from=builder /app/.env* ./
 
-EXPOSE 8000
+EXPOSE 8080
 
 CMD ["node", "dist/index.js"]

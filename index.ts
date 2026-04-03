@@ -7,6 +7,7 @@ import * as attendanceService from "./services/attendance";
 import { logStatus, logError } from "./services/logService";
 import * as leaveService from "./services/leaveService";
 import { sendSuccessMessage, sendFailureMessage } from "./services/telegram";
+import { startServer } from "./services/server";
 
 /** Absolute path to the heartbeat file written every 60 seconds. */
 const HEARTBEAT_FILE = "/tmp/heartbeat";
@@ -368,13 +369,46 @@ async function runLogoutFlow(): Promise<void> {
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
 
+  // ---------------------------------------------------------------------------
+  // One-shot CLI modes (self-hosting / local testing)
+  // ---------------------------------------------------------------------------
   if (args.includes("--health")) {
     await healthCheck();
-  } else if (args.includes("--login")) {
+    return;
+  }
+
+  if (args.includes("--login")) {
     await runLoginFlow();
-  } else if (args.includes("--logout")) {
+    return;
+  }
+
+  if (args.includes("--logout")) {
     await runLogoutFlow();
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Persistent modes — determined by --server flag or MODE env var
+  // ---------------------------------------------------------------------------
+  const isServerMode =
+    args.includes("--server") || config.MODE === "server";
+
+  if (isServerMode) {
+    // Stateless REST API mode — intended for Cloud Run, ECS, or any container
+    // service that scales to zero. The scheduler is NOT started; an external
+    // scheduler (Cloud Scheduler, EventBridge, etc.) calls /login and /logout.
+    console.log("Starting in REST server mode...");
+    logStatus("Starting in REST server mode.");
+    startServer(runLoginFlow, runLogoutFlow);
   } else {
+    // Stateful cron mode — intended for a persistent VM or local Docker container.
+    if (!config.LOGIN_TIME || !config.LOGOUT_TIME) {
+      console.error(
+        "Error: LOGIN_TIME and LOGOUT_TIME are required in cron mode. Set them in your .env file.",
+      );
+      process.exit(1);
+    }
+
     console.log(`Starting automation for ${config.GREYTHR_USERNAME}`);
 
     // Schedule Login Flow
