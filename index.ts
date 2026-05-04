@@ -8,6 +8,7 @@ import { logStatus, logError } from "./services/logService";
 import * as leaveService from "./services/leaveService";
 import { sendSuccessMessage, sendFailureMessage } from "./services/telegram";
 import { startServer } from "./services/server";
+import { initBot, isSkippedToday } from "./services/tgBotService";
 
 /** Absolute path to the heartbeat file written every 60 seconds. */
 const HEARTBEAT_FILE = "/tmp/heartbeat";
@@ -155,6 +156,18 @@ async function runLoginFlow(): Promise<void> {
     console.log("Login flow already running. Skipping this trigger.");
     return;
   }
+
+  // Check if a "skip" command was sent via Telegram for today
+  if (isSkippedToday()) {
+    logStatus("Skip flag is set for today. Login flow will not run.");
+    console.log("Skip flag is set for today. Login flow will not run.");
+    await sendSuccessMessage(
+      "Login Flow (Skipped)",
+      "Skip command was received via Telegram. Attendance check-in skipped for today.",
+    );
+    return;
+  }
+
   loginRunning = true;
 
   console.log("Starting GreytHR login flow...");
@@ -187,13 +200,21 @@ async function runLoginFlow(): Promise<void> {
     logStatus("Dashboard load after login completed.");
 
     // Check for public holiday
-    const { isHoliday, description: holidayName } = await leaveService.checkHoliday(page);
+    const { isHoliday, description: holidayName } =
+      await leaveService.checkHoliday(page);
     console.log({ isHoliday, holidayName });
 
     if (isHoliday) {
-      console.log(`Today is a public holiday (${holidayName}). Skipping attendance check-in.`);
-      logStatus(`Today is a public holiday (${holidayName}). SKIPPING check-in.`);
-      await sendSuccessMessage("Login Flow (Skipped)", `Today is a public holiday: ${holidayName}. Skipped attendance check-in.`);
+      console.log(
+        `Today is a public holiday (${holidayName}). Skipping attendance check-in.`,
+      );
+      logStatus(
+        `Today is a public holiday (${holidayName}). SKIPPING check-in.`,
+      );
+      await sendSuccessMessage(
+        "Login Flow (Skipped)",
+        `Today is a public holiday: ${holidayName}. Skipped attendance check-in.`,
+      );
     } else {
       // Check for leave
       const isOnLeave = await leaveService.checkLeave(page);
@@ -202,12 +223,18 @@ async function runLoginFlow(): Promise<void> {
       if (isOnLeave) {
         console.log("User is on leave today. Skipping attendance check-in.");
         logStatus("User is on leave today. SKIPPING check-in.");
-        await sendSuccessMessage("Login Flow (Skipped)", "User is on leave today. Skipped attendance check-in.");
+        await sendSuccessMessage(
+          "Login Flow (Skipped)",
+          "User is on leave today. Skipped attendance check-in.",
+        );
       } else {
         // Utilize Attendance Service
         await attendanceService.checkIn(page);
         logStatus("Attendance check-in flow completed.");
-        await sendSuccessMessage("Login Flow Success", "Attendance check-in completed successfully.");
+        await sendSuccessMessage(
+          "Login Flow Success",
+          "Attendance check-in completed successfully.",
+        );
       }
     }
   } catch (error: unknown) {
@@ -274,6 +301,18 @@ async function runLogoutFlow(): Promise<void> {
     console.log("Logout flow already running. Skipping this trigger.");
     return;
   }
+
+  // Check if a "skip" command was sent via Telegram for today
+  if (isSkippedToday()) {
+    logStatus("Skip flag is set for today. Logout flow will not run.");
+    console.log("Skip flag is set for today. Logout flow will not run.");
+    await sendSuccessMessage(
+      "Logout Flow (Skipped)",
+      "Skip command was received via Telegram. Attendance check-out skipped for today.",
+    );
+    return;
+  }
+
   logoutRunning = true;
 
   console.log("Starting GreytHR logout flow...");
@@ -307,7 +346,10 @@ async function runLogoutFlow(): Promise<void> {
     // Utilize Attendance Service
     await attendanceService.checkOut(page);
     logStatus("Attendance check-out flow completed.");
-    await sendSuccessMessage("Logout Flow Success", "Attendance check-out completed successfully.");
+    await sendSuccessMessage(
+      "Logout Flow Success",
+      "Attendance check-out completed successfully.",
+    );
   } catch (error: unknown) {
     console.error("An error occurred during logout flow:", error);
     logError("Logout flow error occurred.", error);
@@ -387,11 +429,21 @@ const main = async (): Promise<void> => {
     return;
   }
 
+  // Initialise the Telegram bot with references to the flow functions so
+  // incoming "login", "logout", "skip", and "unskip" commands are wired up.
+  // NOTE: bot.start() is a blocking long-poll loop that never resolves, so we
+  // intentionally do NOT await it — the cron scheduler / server setup below
+  // must continue running on the same process.
+  const bot = initBot(runLoginFlow, runLogoutFlow);
+  bot.start().catch((err) => {
+    logError("Telegram bot crashed", err);
+    console.error("Telegram bot crashed:", err);
+  });
+
   // ---------------------------------------------------------------------------
   // Persistent modes — determined by --server flag or MODE env var
   // ---------------------------------------------------------------------------
-  const isServerMode =
-    args.includes("--server") || config.MODE === "server";
+  const isServerMode = args.includes("--server") || config.MODE === "server";
 
   if (isServerMode) {
     // Stateless REST API mode — intended for Cloud Run, ECS, or any container

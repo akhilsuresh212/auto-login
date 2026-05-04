@@ -74,6 +74,22 @@ To receive automated notifications on Telegram:
 6. Find `"chat":{"id":...}` in the JSON response.
 7. Copy the ID (including the `-` prefix for groups/channels) and set it as `TELEGRAM_BOT_MESSAGE_ID`.
 
+## Telegram Commands
+
+The bot accepts plain-text commands **and** provides inline keyboard buttons for tap-based control. Every bot reply includes the button row so you never have to remember the command syntax.
+
+| Command / Button | Action |
+| :--------------- | :----- |
+| `skip` / ⏭️ Skip Today | Sets a skip flag for **today**. Both the scheduled login and logout flows will be skipped when their cron/trigger times arrive. |
+| `unskip` / ↩️ Cancel Skip | Clears the skip flag so flows run normally for the rest of the day. No-ops if no skip is currently active. |
+| `login` / ▶️ Login Now | Immediately triggers the attendance check-in flow (same as `POST /login` or `--login`). |
+| `logout` / ⏹️ Logout Now | Immediately triggers the attendance check-out flow (same as `POST /logout` or `--logout`). |
+
+**Notes:**
+- Commands are case-insensitive and leading/trailing spaces are ignored.
+- The skip flag is date-scoped — it only suppresses flows for the calendar day on which `skip` was sent, and resets automatically the following day.
+- `login` and `logout` commands respect the same concurrency guard as scheduled runs; a second trigger is a no-op if the flow is already in progress.
+
 ## Encryption with Dotenvx
 
 This project uses [dotenvx](https://dotenvx.com/) to keep credentials encrypted at rest.
@@ -306,7 +322,8 @@ services/
   attendance.ts            ← Attendance check-in / check-out (API)
   leaveService.ts          ← Public holiday check (API) + personal leave check (API + interception)
   logService.ts            ← File-based status and error logging
-  telegram.ts              ← Telegram Bot API notifications
+  telegram.ts              ← Telegram Bot API notifications (outbound)
+  tgBotService.ts          ← Grammy bot: inbound commands (skip / login / logout)
   mailer.ts                ← SMTP failure emails with screenshot attachments
 logs/
   login-status.log         ← Timestamped status trail
