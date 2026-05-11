@@ -9,6 +9,7 @@ import * as leaveService from "./services/leaveService";
 import { sendSuccessMessage, sendFailureMessage } from "./services/telegram";
 import { startServer } from "./services/server";
 import { initBot, isSkippedToday } from "./services/tgBotService";
+import { sendActionsSummary } from "./services/actions";
 
 /** Absolute path to the heartbeat file written every 60 seconds. */
 const HEARTBEAT_FILE = "/tmp/heartbeat";
@@ -198,6 +199,10 @@ async function runLoginFlow(): Promise<void> {
     // Wait for dashboard loading after login
     await page.waitForLoadState("networkidle");
     logStatus("Dashboard load after login completed.");
+
+    // Send daily actions summary (leave approvals + regularizations) to Telegram.
+    // Runs on every successful login, regardless of holiday/leave/check-in outcome.
+    await sendActionsSummary(page);
 
     // Check for public holiday
     const { isHoliday, description: holidayName } =
