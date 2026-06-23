@@ -1,6 +1,5 @@
 import { Page } from "playwright";
 import { logStatus, logError } from "./logService";
-import { sendTelegramMessage } from "./telegram";
 
 // ---------------------------------------------------------------------------
 // API endpoints
@@ -308,17 +307,17 @@ async function fetchPendingRegularizationActions(
 }
 
 // ---------------------------------------------------------------------------
-// Telegram message builders
+// Message builders
 // ---------------------------------------------------------------------------
 
 /**
- * Builds the HTML-formatted Telegram message for pending leave approvals.
+ * Builds the formatted message for pending leave approvals.
  *
  * Shows a numbered list of formatted leave items, or a "no pending requests"
  * notice when the list is empty.
  *
  * @param items - The list of pending leave action items.
- * @returns An HTML string ready to pass to {@link sendTelegramMessage}.
+ * @returns A formatted string summarising pending leave approvals.
  */
 function buildLeaveMessage(items: LeaveActionItem[]): string {
   if (items.length === 0) {
@@ -332,10 +331,10 @@ function buildLeaveMessage(items: LeaveActionItem[]): string {
 }
 
 /**
- * Builds the HTML-formatted Telegram message for pending regularization requests.
+ * Builds the formatted message for pending regularization requests.
  *
  * @param items - The list of pending regularization action items.
- * @returns An HTML string ready to pass to {@link sendTelegramMessage}.
+ * @returns A formatted string summarising pending regularization requests.
  */
 function buildRegularizationMessage(items: RegularizationActionItem[]): string {
   if (items.length === 0) {
@@ -353,21 +352,16 @@ function buildRegularizationMessage(items: RegularizationActionItem[]): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches all pending leave and regularization approval tasks, then sends two
- * separate Telegram messages — one per category — to give the manager an instant
- * overview of what needs attention for the day.
- *
- * **Message order sent to Telegram:**
- * 1. Pending leave approvals  (📋)
- * 2. Pending regularizations  (🕐)
+ * Fetches all pending leave and regularization approval tasks, then logs a
+ * summary for the manager showing what needs attention for the day.
  *
  * Both API calls are issued in parallel to minimise latency. A failure in either
- * fetch returns an empty list (already logged) so the other message is still
- * delivered.
+ * fetch returns an empty list (already logged) so the other summary is still
+ * produced.
  *
  * Called by `runLoginFlow` in `index.ts` immediately after a successful portal
  * login and dashboard load, before the attendance check-in step. This ensures
- * the summary is always sent on a successful login regardless of whether
+ * the summary is always logged on a successful login regardless of whether
  * check-in is skipped due to a holiday or personal leave.
  *
  * @param page - The authenticated Playwright `Page`. Can be on any portal URL;
@@ -384,19 +378,17 @@ export async function sendActionsSummary(page: Page): Promise<void> {
     ]);
 
     if (leaveItems.length > 0) {
-      await sendTelegramMessage(buildLeaveMessage(leaveItems));
-      logStatus(`Sent ${leaveItems.length} pending leave approval(s) to Telegram.`);
+      logStatus(buildLeaveMessage(leaveItems));
     } else {
-      logStatus("No pending leave approvals — skipping Telegram notification.");
+      logStatus("No pending leave approvals.");
     }
 
     if (regularizationItems.length > 0) {
-      await sendTelegramMessage(buildRegularizationMessage(regularizationItems));
-      logStatus(`Sent ${regularizationItems.length} pending regularization(s) to Telegram.`);
+      logStatus(buildRegularizationMessage(regularizationItems));
     } else {
-      logStatus("No pending regularizations — skipping Telegram notification.");
+      logStatus("No pending regularizations.");
     }
   } catch (error: unknown) {
-    logError("Failed to send actions summary to Telegram.", error);
+    logError("Failed to build actions summary.", error);
   }
 }

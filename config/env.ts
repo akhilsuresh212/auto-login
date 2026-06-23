@@ -86,16 +86,6 @@ interface AppConfig {
   /** Recipient address for failure email alerts. */
   SMTP_TO: string | undefined;
 
-  /**
-   * Telegram Bot API credentials used for push notifications.
-   * Both `botToken` and `chatId` are required for Telegram alerts to work.
-   */
-  TELEGRAM: {
-    /** Telegram Bot token obtained from @BotFather (e.g. `123456:ABC-DEF...`). */
-    botToken: string | undefined;
-    /** Telegram chat/channel ID where messages are delivered. */
-    chatId: string | undefined;
-  };
 }
 
 /**
@@ -134,7 +124,7 @@ if (smtpPortValue && Number.isNaN(smtpPort)) {
 }
 
 // Warn (but do not exit) when SMTP is partially configured, as email alerts
-// are optional — Telegram is the primary notification channel.
+// are optional and may not be configured in all environments.
 if (
   !process.env.SMTP_HOST ||
   !process.env.SMTP_USER ||
@@ -194,10 +184,6 @@ const appConfig: AppConfig = {
   SMTP_PASS: process.env.SMTP_PASS,
   SMTP_FROM: process.env.SMTP_FROM,
   SMTP_TO: process.env.SMTP_TO,
-  TELEGRAM: {
-    botToken: requireEnv("TELEGRAM_BOT_TOKEN"),
-    chatId: requireEnv("TELEGRAM_BOT_MESSAGE_ID"),
-  },
 };
 
 export default appConfig;

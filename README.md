@@ -13,7 +13,7 @@ This project automates the login, logout, and attendance workflows for the Greyt
 - **API-First Automation**: All attendance and leave/holiday checks use `page.evaluate(fetch())` to call GreytHR's internal REST APIs directly inside the authenticated browser context, avoiding fragile DOM traversal wherever possible.
 - **Headless Mode**: Supports headless mode (default for Docker/server) or headed mode for local debugging.
 - **Secure Configuration**: Uses `@dotenvx/dotenvx` for encrypted environment variable management.
-- **Telegram Notifications**: Real-time alerts for successful flows, skipped days (holiday/leave), and failures.
+- **Notifications**: Logs success/failure events to console and log files. Pluggable notifier stub (`services/notifier.ts`) ready for a push channel when chosen.
 - **Email Alerts**: SMTP failure emails with screenshot attachments for attendance API errors.
 
 ## Prerequisites
@@ -53,42 +53,12 @@ This project automates the login, logout, and attendance workflows for the Greyt
    | `LOGIN_TIME` | In cron mode | Cron expression for the daily check-in run | `0 9 * * 1-5` (9:00 AM Mon–Fri) |
    | `LOGOUT_TIME` | In cron mode | Cron expression for the daily check-out run | `0 18 * * 1-5` (6:00 PM Mon–Fri) |
    | `HEADLESS` | No | Run Chromium in headless mode (`true`/`false`) | `true` |
-   | `TELEGRAM_BOT_TOKEN` | Yes | Token from @BotFather for push notifications | `123456:ABC-DEF...` |
-   | `TELEGRAM_BOT_MESSAGE_ID` | Yes | Telegram chat/channel ID to deliver messages to | `-100123456` or `@channel` |
    | `SMTP_HOST` | No | SMTP server hostname for failure email alerts | `smtp.gmail.com` |
    | `SMTP_PORT` | No | SMTP server port (`587` for STARTTLS, `465` for TLS) | `587` |
    | `SMTP_USER` | No | SMTP authentication username | `user@example.com` |
    | `SMTP_PASS` | No | SMTP authentication password or app password | `apppassword` |
    | `SMTP_FROM` | No | Sender address shown in failure emails | `alerts@example.com` |
    | `SMTP_TO` | No | Recipient address for failure emails | `you@example.com` |
-
-## Telegram Bot Setup
-
-To receive automated notifications on Telegram:
-
-1. Open Telegram and search for **@BotFather**.
-2. Send `/newbot` and follow the instructions to create a new bot.
-3. BotFather will provide an **HTTP API Token** — add it to `.env` as `TELEGRAM_BOT_TOKEN`.
-4. Send any message to your new bot (e.g. `/start`) to open a chat.
-5. Visit `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates` in a browser.
-6. Find `"chat":{"id":...}` in the JSON response.
-7. Copy the ID (including the `-` prefix for groups/channels) and set it as `TELEGRAM_BOT_MESSAGE_ID`.
-
-## Telegram Commands
-
-The bot accepts plain-text commands **and** provides inline keyboard buttons for tap-based control. Every bot reply includes the button row so you never have to remember the command syntax.
-
-| Command / Button | Action |
-| :--------------- | :----- |
-| `skip` / ⏭️ Skip Today | Sets a skip flag for **today**. Both the scheduled login and logout flows will be skipped when their cron/trigger times arrive. |
-| `unskip` / ↩️ Cancel Skip | Clears the skip flag so flows run normally for the rest of the day. No-ops if no skip is currently active. |
-| `login` / ▶️ Login Now | Immediately triggers the attendance check-in flow (same as `POST /login` or `--login`). |
-| `logout` / ⏹️ Logout Now | Immediately triggers the attendance check-out flow (same as `POST /logout` or `--logout`). |
-
-**Notes:**
-- Commands are case-insensitive and leading/trailing spaces are ignored.
-- The skip flag is date-scoped — it only suppresses flows for the calendar day on which `skip` was sent, and resets automatically the following day.
-- `login` and `logout` commands respect the same concurrency guard as scheduled runs; a second trigger is a no-op if the flow is already in progress.
 
 ## Encryption with Dotenvx
 
@@ -181,35 +151,40 @@ Concurrent requests to the same endpoint are safe — the existing concurrency g
 
 ### Login Flow (`--login` / `POST /login` / scheduled)
 
-```
-Launch Chromium
-  └─ Navigate to portal & authenticate (Playwright UI)
-       └─ Check public holiday
-       │    GET /v3/api/leave/years           → get current fiscal year
-       │    GET /v3/api/leave/holidays/{year} → get mandatory holidays
-       │    Is today a non-restricted holiday? → skip + notify
-       └─ Check personal leave (if not a holiday)
-       │    Navigate to /v3/portal/ess/leave/apply
-       │    Intercept POST /v3/api/workflow/my-process-info-list/leave (Pending tab)
-       │    Intercept POST /v3/api/workflow/my-process-info-list/leave (History tab)
-       │    Has active leave today? → skip + notify
-       └─ Mark check-in (if not a holiday and not on leave)
-            GET /v3/api/dashboard/dashlet/markAttendance → check current state
-            POST /v3/api/attendance/mark-attendance?action=Signin
-  └─ Logout (always, in finally block)
-  └─ Close browser
+```mermaid
+flowchart TD
+    A([Start]) --> B{Already running?}
+    B -- Yes --> Z([Exit — concurrency guard])
+    B -- No --> C[Launch Chromium]
+    C --> D[Navigate & authenticate]
+    D --> E[Fetch daily actions summary\nleave approvals + regularizations]
+    E --> F{Mandatory public holiday?\nGET /v3/api/leave/years\nGET /v3/api/leave/holidays/year}
+    F -- Yes --> G[Skip + log notification]
+    F -- No --> H{On personal leave?\nPOST workflow/my-process-info-list/leave}
+    H -- Yes --> I[Skip + log notification]
+    H -- No --> J[POST mark-attendance\naction=Signin]
+    J --> K[Log success notification]
+    G & I & K --> L[Logout portal session]
+    L --> M[Close browser]
+    M --> N([End])
 ```
 
 ### Logout Flow (`--logout` / `POST /logout` / scheduled)
 
-```
-Launch Chromium
-  └─ Navigate to portal & authenticate (Playwright UI)
-       └─ Mark check-out
-            GET /v3/api/dashboard/dashlet/markAttendance → confirm signed in
-            POST /v3/api/attendance/mark-attendance?action=Signout
-  └─ Logout (always, in finally block)
-  └─ Close browser
+```mermaid
+flowchart TD
+    A([Start]) --> B{Already running?}
+    B -- Yes --> Z([Exit — concurrency guard])
+    B -- No --> C[Launch Chromium]
+    C --> D[Navigate & authenticate]
+    D --> E[GET markAttendance\nconfirm signed-in state]
+    E --> F{Currently signed in?}
+    F -- Yes --> G[POST mark-attendance\naction=Signout]
+    F -- No --> H[Skip — not signed in]
+    G --> I[Log success notification]
+    H & I --> J[Logout portal session]
+    J --> K[Close browser]
+    K --> L([End])
 ```
 
 ### Public Holiday Logic
@@ -229,12 +204,12 @@ Holidays with `restricted: true` are optional; employees choose to take them. If
 
 | Event | Channel | Message |
 | :--- | :--- | :--- |
-| Check-in successful | Telegram ✅ | "Attendance check-in completed successfully." |
-| Check-out successful | Telegram ✅ | "Attendance check-out completed successfully." |
-| Skipped — public holiday | Telegram ✅ | "Today is a public holiday: {name}. Skipped." |
-| Skipped — on leave | Telegram ✅ | "User is on leave today. Skipped." |
-| Login/logout flow failed | Telegram ❌ | Error message with timestamp |
-| Attendance API failed | Telegram ❌ + Email 📧 | Error message + screenshot attachment |
+| Check-in successful | Log ✅ | "Attendance check-in completed successfully." |
+| Check-out successful | Log ✅ | "Attendance check-out completed successfully." |
+| Skipped — public holiday | Log ✅ | "Today is a public holiday: {name}. Skipped." |
+| Skipped — on leave | Log ✅ | "User is on leave today. Skipped." |
+| Login/logout flow failed | Log ❌ | Error message with timestamp |
+| Attendance API failed | Log ❌ + Email 📧 | Error message + screenshot attachment |
 
 ## Usage
 
@@ -280,7 +255,7 @@ docker-compose down
 2. Set the following environment variables in your cloud service:
    - `API_KEY` — the secret your scheduler will send.
    - `DOTENV_PRIVATE_KEY` — decryption key for your encrypted `.env` (if used).
-   - All GreytHR and Telegram credentials.
+   - All GreytHR credentials.
 3. Configure your external scheduler (Cloud Scheduler, EventBridge) to call:
    - `POST /login` at check-in time with header `x-api-key: <API_KEY>`
    - `POST /logout` at check-out time with header `x-api-key: <API_KEY>`
@@ -322,8 +297,7 @@ services/
   attendance.ts            ← Attendance check-in / check-out (API)
   leaveService.ts          ← Public holiday check (API) + personal leave check (API + interception)
   logService.ts            ← File-based status and error logging
-  telegram.ts              ← Telegram Bot API notifications (outbound)
-  tgBotService.ts          ← Grammy bot: inbound commands (skip / login / logout)
+  notifier.ts              ← Notification stub (console/log; swap in a push channel here)
   mailer.ts                ← SMTP failure emails with screenshot attachments
 logs/
   login-status.log         ← Timestamped status trail

@@ -4,7 +4,7 @@
 You are an expert AI developer assistant managing the `auto-login` repository. 
 - **Core Function**: An automated Node.js application that handles login, logout, and attendance workflows for the GreytHR portal.
 - **Key Mechanisms**: Uses Playwright for UI automation/authentication, native `fetch` via page evaluation for API-level attendance marking, and `node-cron` for scheduling. 
-- **Notification System**: Integrates with Telegram for success/failure alerts and SMTP for email fallbacks on API errors.
+- **Notification System**: Logs success/failure events via `notifier.ts` (console + log files). Uses SMTP for email failure alerts with screenshot attachments. The notifier is a stub ready to be replaced with a push channel.
 
 ## 2. Tech Stack & Environment
 - **Language**: TypeScript (Node.js v18/v20 target).
@@ -19,7 +19,7 @@ When writing, modifying, or refactoring code in this repository, strictly adhere
 - **API-First Automation (Crucial)**: Even though Playwright is used, avoid screen traversal and DOM manipulation as much as possible. Always check if an API is available for an action (e.g., `/v3/api/attendance/mark-attendance`) and prefer using `page.evaluate()` to trigger those APIs directly via `fetch` over clicking UI elements.
 - **Strict Garbage Collection (Crucial)**: Always clean up resources immediately. Every Playwright action must ensure that `page`, `context`, and `browser` are explicitly closed in a `finally` block. Never let a headless browser run in the background and consume memory after a task is completed.
 - **Intensive Logging (Crucial)**: Log absolutely everything to the log files. Every state change, API call, network interception, success, and error must be tracked using the internal logging service (`logService.ts`: `logStatus`, `logError`). Do not rely on `console.log` alone.
-- **Clean Architecture & Modularity**: Maintain strict separation of concerns. UI automation (`auth.ts`), API requests (`attendance.ts`), configuration (`env.ts`), and side-effects (`telegram.ts`, `logService.ts`) must remain isolated in their respective domains.
+- **Clean Architecture & Modularity**: Maintain strict separation of concerns. UI automation (`auth.ts`), API requests (`attendance.ts`), configuration (`env.ts`), and side-effects (`notifier.ts`, `logService.ts`) must remain isolated in their respective domains.
 - **Strict Typing & Validations**: Utilize TypeScript interfaces for all data structures (e.g., `AttendanceLocation`, `AttendanceData`). Ensure explicit return types for all functions.
 - **Error Handling**: Implement robust `try/catch/finally` blocks. Capture screenshots on UI failures before triggering the cleanup sequence.
 
@@ -51,5 +51,5 @@ When asked to test or run specific workflows, use these commands:
 - **Future/Alternative Strategy (Stateless)**: If migrating to serverless (e.g., Google Cloud Run), be prepared to refactor `index.ts` to remove `node-cron`, expose an Express server with POST routes (`/login`, `/logout`), and rely on external triggers (Cloud Scheduler).
 
 ## 7. Troubleshooting Guidelines
-- **Playwright Timeouts**: If UI interactions fail, default to capturing a screenshot and triggering the Telegram/Mailer failure functions before closing the browser context.
+- **Playwright Timeouts**: If UI interactions fail, default to capturing a screenshot and triggering the Mailer and notifier failure functions before closing the browser context.
 - **API Interception Fallbacks**: If the `markAttendance` network request is not intercepted on load, the system falls back to a manual `page.evaluate()` fetch. Keep this redundancy intact during refactors.
