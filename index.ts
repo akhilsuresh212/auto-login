@@ -6,7 +6,7 @@ import * as authService from "./services/auth";
 import * as attendanceService from "./services/attendance";
 import { logStatus, logError } from "./services/logService";
 import * as leaveService from "./services/leaveService";
-import { sendSuccessMessage, sendFailureMessage } from "./services/notifier";
+import { sendSuccessMessage, sendFailureMessage, sendStartupMessage } from "./services/notifier";
 import { startServer } from "./services/server";
 import { sendActionsSummary } from "./services/actions";
 
@@ -460,6 +460,10 @@ const main = async (): Promise<void> => {
 
     console.log("Scheduler started. Waiting for cron triggers...");
     logStatus("Scheduler started. Waiting for cron triggers...");
+
+    sendStartupMessage(config.LOGIN_TIME, config.LOGOUT_TIME).catch((err) =>
+      logError("Startup notification failed", err),
+    );
   }
 };
 

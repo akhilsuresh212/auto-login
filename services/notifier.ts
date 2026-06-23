@@ -19,7 +19,6 @@ async function publish(
   tags: string[],
 ): Promise<void> {
   const { topic, url } = appConfig.NTFY;
-
   if (!topic) {
     logStatus("NTFY_TOPIC not configured — skipping push notification.");
     return;
@@ -30,7 +29,7 @@ async function publish(
       method: "POST",
       headers: {
         "Content-Type": "text/plain",
-        "Title": title,
+        "Title": encodeURIComponent(title),
         "Priority": String(priority),
         "Tags": tags.join(","),
       },
@@ -41,6 +40,7 @@ async function publish(
       logError(`ntfy publish failed (HTTP ${res.status})`, await res.text());
     }
   } catch (error: unknown) {
+    console.log(error)
     logError("ntfy publish error", error);
   }
 }
@@ -131,4 +131,35 @@ export async function sendSummaryMessage(
   );
 
   logStatus(`[SUMMARY] ${title}`);
+}
+
+/**
+ * Sends a startup notification via ntfy confirming the scheduler is live.
+ *
+ * Published once during application boot in cron mode, so you can verify that
+ * the process started successfully and confirm the scheduled times at a glance.
+ *
+ * @param loginCron  - Raw cron expression for the check-in job.
+ * @param logoutCron - Raw cron expression for the check-out job.
+ */
+export async function sendStartupMessage(
+  loginCron: string,
+  logoutCron: string,
+): Promise<void> {
+  const ts = istTimestamp();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  const body = [
+    "Scheduler is running. Attendance flows are active.",
+    "",
+    `Login:    ${loginCron}`,
+    `Logout:   ${logoutCron}`,
+    `Timezone: ${tz}`,
+    "",
+    `Started: ${ts} IST`,
+  ].join("\n");
+
+  await publish("🟢 Auto-Login Scheduler Started", body, 3, ["white_check_mark"]);
+  logStatus(`[STARTUP] Login: ${loginCron} | Logout: ${logoutCron} | TZ: ${tz}`);
+  console.log(`[STARTUP] Login: ${loginCron} | Logout: ${logoutCron} | TZ: ${tz}`);
 }

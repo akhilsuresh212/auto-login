@@ -13,7 +13,7 @@ This project automates the login, logout, and attendance workflows for the Greyt
 - **API-First Automation**: All attendance and leave/holiday checks use `page.evaluate(fetch())` to call GreytHR's internal REST APIs directly inside the authenticated browser context, avoiding fragile DOM traversal wherever possible.
 - **Headless Mode**: Supports headless mode (default for Docker/server) or headed mode for local debugging.
 - **Secure Configuration**: Uses `@dotenvx/dotenvx` for encrypted environment variable management.
-- **Push Notifications**: Real-time alerts via [ntfy.sh](https://ntfy.sh) for all attendance events — success, skipped (holiday/leave), failure, and daily manager action summaries.
+- **Push Notifications**: Real-time alerts via [ntfy.sh](https://ntfy.sh) for all attendance events — startup confirmation with cron schedule, success, skipped (holiday/leave), failure, and daily manager action summaries.
 - **Email Alerts**: SMTP failure emails with screenshot attachments for attendance API errors.
 
 ## Prerequisites
@@ -73,20 +73,45 @@ This project uses [ntfy.sh](https://ntfy.sh) for push notifications. ntfy delive
    ```
    NTFY_TOPIC=greythr-alerts-abc123
    ```
-3. **Subscribe on your device:**
-   - **Android / iOS**: Download the [ntfy app](https://ntfy.sh/#subscribe) → tap **+** → enter your topic name.
-   - **Browser**: Open `https://ntfy.sh/<your-topic>` and click **Subscribe**.
-   - **Desktop**: `ntfy subscribe your-topic-name` via the [ntfy CLI](https://docs.ntfy.sh/subscribe/cli/).
+3. **Subscribe on your device** — see platform instructions below.
 
 > **Privacy note**: The public `ntfy.sh` server is open — anyone who knows your topic name can subscribe. Use a hard-to-guess topic name, or run a [self-hosted ntfy instance](https://docs.ntfy.sh/install/) and set `NTFY_URL` to your server URL.
+
+### Android setup
+
+1. Install **ntfy** from the [Google Play Store](https://play.google.com/store/apps/details?id=io.heckel.ntfy) or [F-Droid](https://f-droid.org/en/packages/io.heckel.ntfy/).
+2. Open the app and tap the **＋** button (bottom-right).
+3. Enter your topic name (e.g. `greythr-alerts-abc123`) and tap **Subscribe**.
+4. Notifications will now arrive as standard Android push notifications.
+
+**Optional — allow battery-intensive delivery:**
+By default, Android may delay or batch notifications to save battery. For instant delivery:
+- Open the ntfy app → tap the three-dot menu (top-right) → **Settings**.
+- Enable **"UnifiedPush"** or set the **Broadcast** delivery method to **"Instant"**.
+- On some devices: Android Settings → Apps → ntfy → Battery → set to **"Unrestricted"**.
+
+### iOS setup
+
+1. Install **ntfy** from the [App Store](https://apps.apple.com/us/app/ntfy/id1625396347).
+2. Open the app and tap **+** (top-right).
+3. Enter your topic name and tap **Subscribe**.
+4. When prompted, tap **Allow** to enable push notifications.
+
+**Note:** iOS requires the ntfy app to poll for messages periodically (Apple restricts background HTTP connections). For near-instant delivery, keep the app open or enable **Background App Refresh**: iOS Settings → General → Background App Refresh → **ntfy → On**.
+
+### Browser / Desktop
+
+- **Browser**: Open `https://ntfy.sh/<your-topic>` → click **Subscribe** → allow notifications when prompted.
+- **Desktop CLI**: `ntfy subscribe your-topic-name` via the [ntfy CLI](https://docs.ntfy.sh/subscribe/cli/).
 
 ### Notification types
 
 | Event | ntfy Title | Priority |
 | :---- | :--------- | :------- |
-| Check-in / Check-out success | ✅ Login Flow Success | Default |
+| Scheduler started (cron mode) | 🟢 Auto-Login Scheduler Started | Default |
+| Check-in / Check-out success | ✅ Login / Logout Flow Success | Default |
 | Skipped — public holiday or leave | ⏭️ Login Flow (Skipped) | Low |
-| Login / logout flow failed | ❌ Login Flow Failed | High |
+| Login / logout flow failed | ❌ Login / Logout Flow Failed | High |
 | Pending leave approvals | 📋 Pending Leave Approvals (N) | Default |
 | Pending regularizations | 🕐 Pending Regularizations (N) | Default |
 
@@ -189,11 +214,11 @@ flowchart TD
     C --> D[Navigate & authenticate]
     D --> E[Fetch daily actions summary\nleave approvals + regularizations]
     E --> F{Mandatory public holiday?\nGET /v3/api/leave/years\nGET /v3/api/leave/holidays/year}
-    F -- Yes --> G[Skip + log notification]
+    F -- Yes --> G[Skip + send ntfy notification]
     F -- No --> H{On personal leave?\nPOST workflow/my-process-info-list/leave}
-    H -- Yes --> I[Skip + log notification]
+    H -- Yes --> I[Skip + send ntfy notification]
     H -- No --> J[POST mark-attendance\naction=Signin]
-    J --> K[Log success notification]
+    J --> K[Send ntfy success notification]
     G & I & K --> L[Logout portal session]
     L --> M[Close browser]
     M --> N([End])
@@ -211,7 +236,7 @@ flowchart TD
     E --> F{Currently signed in?}
     F -- Yes --> G[POST mark-attendance\naction=Signout]
     F -- No --> H[Skip — not signed in]
-    G --> I[Log success notification]
+    G --> I[Send ntfy success notification]
     H & I --> J[Logout portal session]
     J --> K[Close browser]
     K --> L([End])
@@ -234,6 +259,7 @@ Holidays with `restricted: true` are optional; employees choose to take them. If
 
 | Event | Channel | Message |
 | :--- | :--- | :--- |
+| Scheduler started | ntfy 🟢 | Cron schedule, timezone, and start time |
 | Check-in successful | ntfy ✅ | "Attendance check-in completed successfully." |
 | Check-out successful | ntfy ✅ | "Attendance check-out completed successfully." |
 | Skipped — public holiday | ntfy ⏭️ | "Today is a public holiday: {name}. Skipped." |
