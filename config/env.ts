@@ -86,6 +86,19 @@ interface AppConfig {
   /** Recipient address for failure email alerts. */
   SMTP_TO: string | undefined;
 
+  /**
+   * ntfy.sh push notification config.
+   * `topic` is required for notifications to be delivered; omitting it disables
+   * push alerts without crashing the app.
+   * `url` defaults to the public ntfy.sh server but can point to a self-hosted
+   * instance (e.g. `https://ntfy.example.com`).
+   */
+  NTFY: {
+    /** ntfy topic name (e.g. `greythr-alerts-abc123`). */
+    topic: string | undefined;
+    /** Base URL of the ntfy server. Defaults to `https://ntfy.sh`. */
+    url: string;
+  };
 }
 
 /**
@@ -184,6 +197,10 @@ const appConfig: AppConfig = {
   SMTP_PASS: process.env.SMTP_PASS,
   SMTP_FROM: process.env.SMTP_FROM,
   SMTP_TO: process.env.SMTP_TO,
+  NTFY: {
+    topic: process.env.NTFY_TOPIC || undefined,
+    url: process.env.NTFY_URL?.replace(/\/$/, "") ?? "https://ntfy.sh",
+  },
 };
 
 export default appConfig;

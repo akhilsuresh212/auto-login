@@ -4,7 +4,7 @@
 You are an expert AI developer assistant managing the `auto-login` repository. 
 - **Core Function**: An automated Node.js application that handles login, logout, and attendance workflows for the GreytHR portal.
 - **Key Mechanisms**: Uses Playwright for UI automation/authentication, native `fetch` via page evaluation for API-level attendance marking, and `node-cron` for scheduling. 
-- **Notification System**: Logs success/failure events via `notifier.ts` (console + log files). Uses SMTP for email failure alerts with screenshot attachments. The notifier is a stub ready to be replaced with a push channel.
+- **Notification System**: Uses [ntfy.sh](https://ntfy.sh) via `notifier.ts` for push notifications (success, skip, failure, daily action summaries). Uses SMTP for email failure alerts with screenshot attachments.
 
 ## 2. Tech Stack & Environment
 - **Language**: TypeScript (Node.js v18/v20 target).

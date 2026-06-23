@@ -1,35 +1,134 @@
-import { logStatus } from "./logService";
+import appConfig from "../config/env";
+import { logStatus, logError } from "./logService";
+
+// ntfy priority scale: 1=min 2=low 3=default 4=high 5=max
+type NtfyPriority = 1 | 2 | 3 | 4 | 5;
 
 /**
- * Sends a formatted success notification.
+ * Publishes a message to the configured ntfy topic.
  *
- * Currently logs to console and the status log file.
- * Replace the body of this function to integrate a push notification
- * service (e.g. email, webhook, SMS) when one is chosen.
+ * Silently skips if `NTFY_TOPIC` is not set, so the app runs without push
+ * notifications in environments where ntfy is intentionally unconfigured.
  *
- * @param action  - Short label for the completed action (e.g. "Login Flow Success").
- * @param details - Optional additional context appended to the log line.
+ * @see https://docs.ntfy.sh/publish/
  */
-export async function sendSuccessMessage(action: string, details: string = ""): Promise<void> {
-  const timestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-  const msg = `[SUCCESS] ${action} | ${timestamp}${details ? ` | ${details}` : ""}`;
-  logStatus(msg);
-  console.log(msg);
+async function publish(
+  title: string,
+  body: string,
+  priority: NtfyPriority,
+  tags: string[],
+): Promise<void> {
+  const { topic, url } = appConfig.NTFY;
+
+  if (!topic) {
+    logStatus("NTFY_TOPIC not configured — skipping push notification.");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${url}/${topic}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain",
+        "Title": title,
+        "Priority": String(priority),
+        "Tags": tags.join(","),
+      },
+      body,
+    });
+
+    if (!res.ok) {
+      logError(`ntfy publish failed (HTTP ${res.status})`, await res.text());
+    }
+  } catch (error: unknown) {
+    logError("ntfy publish error", error);
+  }
+}
+
+function istTimestamp(): string {
+  return new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 }
 
 /**
- * Sends a formatted failure notification.
+ * Sends a success or skip notification via ntfy.
  *
- * Currently logs to console and the status log file.
- * Replace the body of this function to integrate a push notification
- * service (e.g. email, webhook, SMS) when one is chosen.
- *
- * @param action - Short label for the failed action (e.g. "Login Flow Failed").
- * @param error  - Plain-text error description.
+ * Actions whose name contains "Skipped" are sent at low priority with a
+ * calendar tag (informational). All other successes use default priority
+ * and a green check tag.
  */
-export async function sendFailureMessage(action: string, error: string): Promise<void> {
-  const timestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-  const msg = `[FAILURE] ${action} | ${timestamp} | Error: ${error}`;
-  logStatus(msg);
-  console.error(msg);
+export async function sendSuccessMessage(
+  action: string,
+  details: string = "",
+): Promise<void> {
+  const ts = istTimestamp();
+  const isSkipped = action.includes("Skipped");
+
+  const body = [
+    details || "Completed successfully.",
+    "",
+    `Time: ${ts} IST`,
+  ].join("\n");
+
+  await publish(
+    `${isSkipped ? "⏭️" : "✅"} ${action}`,
+    body,
+    isSkipped ? 2 : 3,
+    isSkipped ? ["calendar"] : ["white_check_mark"],
+  );
+
+  logStatus(`[SUCCESS] ${action} | ${ts}${details ? ` | ${details}` : ""}`);
+  console.log(`[SUCCESS] ${action}`);
+}
+
+/**
+ * Sends a failure notification via ntfy at high priority.
+ *
+ * The error message is included in the body so the recipient can triage
+ * without opening logs. Also logs to the status log file and stderr.
+ */
+export async function sendFailureMessage(
+  action: string,
+  error: string,
+): Promise<void> {
+  const ts = istTimestamp();
+
+  const body = [
+    "An error occurred. Immediate attention may be required.",
+    "",
+    `Error: ${error}`,
+    "",
+    `Time: ${ts} IST`,
+  ].join("\n");
+
+  await publish(
+    `❌ ${action}`,
+    body,
+    4,
+    ["x", "rotating_light"],
+  );
+
+  logStatus(`[FAILURE] ${action} | ${ts} | Error: ${error}`);
+  console.error(`[FAILURE] ${action} | ${ts} | Error: ${error}`);
+}
+
+/**
+ * Sends an informational summary notification via ntfy at default priority.
+ *
+ * Used for daily action summaries (pending leave approvals, regularizations).
+ * The IST timestamp is appended automatically.
+ */
+export async function sendSummaryMessage(
+  title: string,
+  body: string,
+): Promise<void> {
+  const ts = istTimestamp();
+
+  await publish(
+    title,
+    `${body}\n\nTime: ${ts} IST`,
+    3,
+    ["clipboard"],
+  );
+
+  logStatus(`[SUMMARY] ${title}`);
 }

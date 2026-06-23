@@ -13,7 +13,7 @@ This project automates the login, logout, and attendance workflows for the Greyt
 - **API-First Automation**: All attendance and leave/holiday checks use `page.evaluate(fetch())` to call GreytHR's internal REST APIs directly inside the authenticated browser context, avoiding fragile DOM traversal wherever possible.
 - **Headless Mode**: Supports headless mode (default for Docker/server) or headed mode for local debugging.
 - **Secure Configuration**: Uses `@dotenvx/dotenvx` for encrypted environment variable management.
-- **Notifications**: Logs success/failure events to console and log files. Pluggable notifier stub (`services/notifier.ts`) ready for a push channel when chosen.
+- **Push Notifications**: Real-time alerts via [ntfy.sh](https://ntfy.sh) for all attendance events — success, skipped (holiday/leave), failure, and daily manager action summaries.
 - **Email Alerts**: SMTP failure emails with screenshot attachments for attendance API errors.
 
 ## Prerequisites
@@ -53,12 +53,42 @@ This project automates the login, logout, and attendance workflows for the Greyt
    | `LOGIN_TIME` | In cron mode | Cron expression for the daily check-in run | `0 9 * * 1-5` (9:00 AM Mon–Fri) |
    | `LOGOUT_TIME` | In cron mode | Cron expression for the daily check-out run | `0 18 * * 1-5` (6:00 PM Mon–Fri) |
    | `HEADLESS` | No | Run Chromium in headless mode (`true`/`false`) | `true` |
+   | `NTFY_TOPIC` | No | ntfy topic name for push notifications | `greythr-alerts-abc123` |
+   | `NTFY_URL` | No | ntfy server base URL. Defaults to `https://ntfy.sh` | `https://ntfy.example.com` |
    | `SMTP_HOST` | No | SMTP server hostname for failure email alerts | `smtp.gmail.com` |
    | `SMTP_PORT` | No | SMTP server port (`587` for STARTTLS, `465` for TLS) | `587` |
    | `SMTP_USER` | No | SMTP authentication username | `user@example.com` |
    | `SMTP_PASS` | No | SMTP authentication password or app password | `apppassword` |
    | `SMTP_FROM` | No | Sender address shown in failure emails | `alerts@example.com` |
    | `SMTP_TO` | No | Recipient address for failure emails | `you@example.com` |
+
+## Push Notifications (ntfy.sh)
+
+This project uses [ntfy.sh](https://ntfy.sh) for push notifications. ntfy delivers real-time alerts to your phone, desktop, or any HTTP client — no account required.
+
+### Setup
+
+1. **Choose a topic name.** This is the channel your notifications are published to. Use a random suffix to keep it private (e.g. `greythr-alerts-abc123`).
+2. **Add it to `.env`:**
+   ```
+   NTFY_TOPIC=greythr-alerts-abc123
+   ```
+3. **Subscribe on your device:**
+   - **Android / iOS**: Download the [ntfy app](https://ntfy.sh/#subscribe) → tap **+** → enter your topic name.
+   - **Browser**: Open `https://ntfy.sh/<your-topic>` and click **Subscribe**.
+   - **Desktop**: `ntfy subscribe your-topic-name` via the [ntfy CLI](https://docs.ntfy.sh/subscribe/cli/).
+
+> **Privacy note**: The public `ntfy.sh` server is open — anyone who knows your topic name can subscribe. Use a hard-to-guess topic name, or run a [self-hosted ntfy instance](https://docs.ntfy.sh/install/) and set `NTFY_URL` to your server URL.
+
+### Notification types
+
+| Event | ntfy Title | Priority |
+| :---- | :--------- | :------- |
+| Check-in / Check-out success | ✅ Login Flow Success | Default |
+| Skipped — public holiday or leave | ⏭️ Login Flow (Skipped) | Low |
+| Login / logout flow failed | ❌ Login Flow Failed | High |
+| Pending leave approvals | 📋 Pending Leave Approvals (N) | Default |
+| Pending regularizations | 🕐 Pending Regularizations (N) | Default |
 
 ## Encryption with Dotenvx
 
@@ -204,12 +234,14 @@ Holidays with `restricted: true` are optional; employees choose to take them. If
 
 | Event | Channel | Message |
 | :--- | :--- | :--- |
-| Check-in successful | Log ✅ | "Attendance check-in completed successfully." |
-| Check-out successful | Log ✅ | "Attendance check-out completed successfully." |
-| Skipped — public holiday | Log ✅ | "Today is a public holiday: {name}. Skipped." |
-| Skipped — on leave | Log ✅ | "User is on leave today. Skipped." |
-| Login/logout flow failed | Log ❌ | Error message with timestamp |
-| Attendance API failed | Log ❌ + Email 📧 | Error message + screenshot attachment |
+| Check-in successful | ntfy ✅ | "Attendance check-in completed successfully." |
+| Check-out successful | ntfy ✅ | "Attendance check-out completed successfully." |
+| Skipped — public holiday | ntfy ⏭️ | "Today is a public holiday: {name}. Skipped." |
+| Skipped — on leave | ntfy ⏭️ | "User is on leave today. Skipped." |
+| Login/logout flow failed | ntfy ❌ (high priority) | Error message with timestamp |
+| Attendance API failed | ntfy ❌ + Email 📧 | Error message + screenshot attachment |
+| Pending leave approvals | ntfy 📋 | Numbered list of pending approvals |
+| Pending regularizations | ntfy 🕐 | Numbered list of pending requests |
 
 ## Usage
 
@@ -297,7 +329,7 @@ services/
   attendance.ts            ← Attendance check-in / check-out (API)
   leaveService.ts          ← Public holiday check (API) + personal leave check (API + interception)
   logService.ts            ← File-based status and error logging
-  notifier.ts              ← Notification stub (console/log; swap in a push channel here)
+  notifier.ts              ← ntfy.sh push notifications (success / failure / summary)
   mailer.ts                ← SMTP failure emails with screenshot attachments
 logs/
   login-status.log         ← Timestamped status trail
