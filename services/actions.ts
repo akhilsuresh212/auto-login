@@ -1,5 +1,6 @@
 import { Page } from "playwright";
 import { logStatus, logError } from "./logService";
+import { sendSummaryMessage } from "./notifier";
 
 // ---------------------------------------------------------------------------
 // API endpoints
@@ -311,40 +312,19 @@ async function fetchPendingRegularizationActions(
 // ---------------------------------------------------------------------------
 
 /**
- * Builds the formatted message for pending leave approvals.
- *
- * Shows a numbered list of formatted leave items, or a "no pending requests"
- * notice when the list is empty.
- *
- * @param items - The list of pending leave action items.
- * @returns A formatted string summarising pending leave approvals.
+ * Returns a numbered plain-text list of pending leave items for use as an
+ * ntfy notification body.
  */
-function buildLeaveMessage(items: LeaveActionItem[]): string {
-  if (items.length === 0) {
-    return "📋 <b>Pending Leave Approvals</b>\n\nNo pending leave requests.";
-  }
-
-  const lines = items.map(
-    (item, idx) => `${idx + 1}. ${formatLeaveItem(item)}`,
-  );
-  return `📋 <b>Pending Leave Approvals (${items.length})</b>\n\n${lines.join("\n")}`;
+function buildLeaveBody(items: LeaveActionItem[]): string {
+  return items.map((item, idx) => `${idx + 1}. ${formatLeaveItem(item)}`).join("\n");
 }
 
 /**
- * Builds the formatted message for pending regularization requests.
- *
- * @param items - The list of pending regularization action items.
- * @returns A formatted string summarising pending regularization requests.
+ * Returns a numbered plain-text list of pending regularization items for use
+ * as an ntfy notification body.
  */
-function buildRegularizationMessage(items: RegularizationActionItem[]): string {
-  if (items.length === 0) {
-    return "🕐 <b>Pending Regularizations</b>\n\nNo pending regularization requests.";
-  }
-
-  const lines = items.map(
-    (item, idx) => `${idx + 1}. ${formatRegularizationItem(item)}`,
-  );
-  return `🕐 <b>Pending Regularizations (${items.length})</b>\n\n${lines.join("\n")}`;
+function buildRegularizationBody(items: RegularizationActionItem[]): string {
+  return items.map((item, idx) => `${idx + 1}. ${formatRegularizationItem(item)}`).join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -352,17 +332,16 @@ function buildRegularizationMessage(items: RegularizationActionItem[]): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches all pending leave and regularization approval tasks, then logs a
- * summary for the manager showing what needs attention for the day.
+ * Fetches all pending leave and regularization approval tasks, then sends a
+ * push notification per category via ntfy (only when items are present) and
+ * logs the results.
  *
- * Both API calls are issued in parallel to minimise latency. A failure in either
- * fetch returns an empty list (already logged) so the other summary is still
- * produced.
+ * Both API calls are issued in parallel to minimise latency. A failure in
+ * either fetch returns an empty list (already logged) so the other summary
+ * is still delivered.
  *
  * Called by `runLoginFlow` in `index.ts` immediately after a successful portal
- * login and dashboard load, before the attendance check-in step. This ensures
- * the summary is always logged on a successful login regardless of whether
- * check-in is skipped due to a holiday or personal leave.
+ * login and dashboard load, before the attendance check-in step.
  *
  * @param page - The authenticated Playwright `Page`. Can be on any portal URL;
  *               the fetch calls run inside the browser context via
@@ -378,13 +357,17 @@ export async function sendActionsSummary(page: Page): Promise<void> {
     ]);
 
     if (leaveItems.length > 0) {
-      logStatus(buildLeaveMessage(leaveItems));
+      const body = buildLeaveBody(leaveItems);
+      logStatus(`Pending leave approvals (${leaveItems.length}):\n${body}`);
+      await sendSummaryMessage(`📋 Pending Leave Approvals (${leaveItems.length})`, body);
     } else {
       logStatus("No pending leave approvals.");
     }
 
     if (regularizationItems.length > 0) {
-      logStatus(buildRegularizationMessage(regularizationItems));
+      const body = buildRegularizationBody(regularizationItems);
+      logStatus(`Pending regularizations (${regularizationItems.length}):\n${body}`);
+      await sendSummaryMessage(`🕐 Pending Regularizations (${regularizationItems.length})`, body);
     } else {
       logStatus("No pending regularizations.");
     }
