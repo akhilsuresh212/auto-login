@@ -6,9 +6,8 @@ import * as authService from "./services/auth";
 import * as attendanceService from "./services/attendance";
 import { logStatus, logError } from "./services/logService";
 import * as leaveService from "./services/leaveService";
-import { sendSuccessMessage, sendFailureMessage } from "./services/telegram";
+import { sendSuccessMessage, sendFailureMessage } from "./services/notifier";
 import { startServer } from "./services/server";
-import { initBot, isSkippedToday } from "./services/tgBotService";
 import { sendActionsSummary } from "./services/actions";
 
 /** Absolute path to the heartbeat file written every 60 seconds. */
@@ -130,7 +129,7 @@ let logoutRunning = false;
  * 4. **Public holiday check** — calls {@link leaveService.checkHoliday} to
  *    query `GET /v3/api/leave/years` and `GET /v3/api/leave/holidays/{year}`.
  *    If today is a mandatory (non-restricted) public holiday, attendance is
- *    skipped and a Telegram notification is sent with the holiday name.
+ *    skipped and a notification is sent with the holiday name.
  * 5. **Personal leave check** (only if not a public holiday) — calls
  *    {@link leaveService.checkLeave} to navigate to the Leave Apply page and
  *    inspect the Pending and History workflow tabs. If the employee has an
@@ -138,11 +137,11 @@ let logoutRunning = false;
  * 6. **Check-in** (only if neither holiday nor leave) — calls
  *    {@link attendanceService.checkIn}, which posts to
  *    `POST /v3/api/attendance/mark-attendance?action=Signin`.
- * 7. **Success notification** — sends a Telegram message on successful check-in.
+ * 7. **Success notification** — sends a notification on successful check-in.
  *
  * **Error handling:**
- * Any exception thrown in steps 3–6 is caught, logged, and reported to
- * Telegram as a failure. A screenshot is also captured to assist diagnostics.
+ * Any exception thrown in steps 3–6 is caught, logged, and reported as a
+ * failure. A screenshot is also captured to assist diagnostics.
  *
  * **Resource cleanup (always runs):**
  * The `finally` block calls {@link authService.logout} to invalidate the
@@ -155,17 +154,6 @@ async function runLoginFlow(): Promise<void> {
   if (loginRunning) {
     logStatus("Login flow already running. Skipping this trigger.");
     console.log("Login flow already running. Skipping this trigger.");
-    return;
-  }
-
-  // Check if a "skip" command was sent via Telegram for today
-  if (isSkippedToday()) {
-    logStatus("Skip flag is set for today. Login flow will not run.");
-    console.log("Skip flag is set for today. Login flow will not run.");
-    await sendSuccessMessage(
-      "Login Flow (Skipped)",
-      "Skip command was received via Telegram. Attendance check-in skipped for today.",
-    );
     return;
   }
 
@@ -200,7 +188,7 @@ async function runLoginFlow(): Promise<void> {
     await page.waitForLoadState("networkidle");
     logStatus("Dashboard load after login completed.");
 
-    // Send daily actions summary (leave approvals + regularizations) to Telegram.
+    // Send daily actions summary (leave approvals + regularizations).
     // Runs on every successful login, regardless of holiday/leave/check-in outcome.
     await sendActionsSummary(page);
 
@@ -288,8 +276,7 @@ async function runLoginFlow(): Promise<void> {
  * 4. **Check-out** — calls {@link attendanceService.checkOut}, which posts to
  *    `POST /v3/api/attendance/mark-attendance?action=Signout` only if the
  *    employee is currently signed in (guards against double sign-out).
- * 5. **Success notification** — sends a Telegram message on successful
- *    check-out.
+ * 5. **Success notification** — sends a notification on successful check-out.
  *
  * **Note:** The logout flow does **not** perform public holiday or personal
  * leave checks. If the morning flow was skipped (holiday/leave), the employee
@@ -297,24 +284,13 @@ async function runLoginFlow(): Promise<void> {
  * nothing — no special guard is needed here.
  *
  * **Error handling and cleanup:** Same pattern as {@link runLoginFlow}. Errors
- * are caught, logged, and reported via Telegram. The `finally` block always
+ * are caught, logged, and reported as failures. The `finally` block always
  * runs {@link authService.logout} and closes all browser resources.
  */
 async function runLogoutFlow(): Promise<void> {
   if (logoutRunning) {
     logStatus("Logout flow already running. Skipping this trigger.");
     console.log("Logout flow already running. Skipping this trigger.");
-    return;
-  }
-
-  // Check if a "skip" command was sent via Telegram for today
-  if (isSkippedToday()) {
-    logStatus("Skip flag is set for today. Logout flow will not run.");
-    console.log("Skip flag is set for today. Logout flow will not run.");
-    await sendSuccessMessage(
-      "Logout Flow (Skipped)",
-      "Skip command was received via Telegram. Attendance check-out skipped for today.",
-    );
     return;
   }
 
@@ -433,17 +409,6 @@ const main = async (): Promise<void> => {
     await runLogoutFlow();
     return;
   }
-
-  // Initialise the Telegram bot with references to the flow functions so
-  // incoming "login", "logout", "skip", and "unskip" commands are wired up.
-  // NOTE: bot.start() is a blocking long-poll loop that never resolves, so we
-  // intentionally do NOT await it — the cron scheduler / server setup below
-  // must continue running on the same process.
-  const bot = initBot(runLoginFlow, runLogoutFlow);
-  bot.start().catch((err) => {
-    logError("Telegram bot crashed", err);
-    console.error("Telegram bot crashed:", err);
-  });
 
   // ---------------------------------------------------------------------------
   // Persistent modes — determined by --server flag or MODE env var

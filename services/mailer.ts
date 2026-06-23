@@ -6,17 +6,16 @@ import { logError, stringifyUnknown } from "./logService";
  * Sends a failure notification email with an optional screenshot attachment
  * via Nodemailer over SMTP.
  *
- * This function is the **secondary** notification channel — it is called
- * alongside {@link sendFailureMessage} (Telegram) when an attendance API
- * action fails. The screenshot attachment provides visual context that is not
- * possible to convey over Telegram.
+ * This function is the secondary notification channel — it is called
+ * alongside {@link sendFailureMessage} when an attendance API action fails.
+ * The screenshot attachment provides visual context beyond what a text alert
+ * can convey.
  *
  * **Pre-condition guard:**
  * If any of the six required SMTP config values (`SMTP_HOST`, `SMTP_PORT`,
  * `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_TO`) is absent, the function
  * logs the skip reason and returns immediately without throwing. This allows
- * deployments that rely solely on Telegram notifications to omit SMTP
- * configuration without breaking the flow.
+ * deployments without SMTP configuration to run without breaking the flow.
  *
  * **Transport configuration:**
  * - `secure: false` — uses STARTTLS upgrade on port 587 (or whichever port is
