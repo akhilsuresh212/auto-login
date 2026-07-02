@@ -28,8 +28,8 @@ async function publish(
     const res = await fetch(`${url}/${topic}`, {
       method: "POST",
       headers: {
-        "Content-Type": "text/plain",
-        "Title": encodeURIComponent(title),
+        "Content-Type": "text/plain; charset=utf-8",
+        "Title": encodeHeader(title),
         "Priority": String(priority),
         "Tags": tags.join(","),
       },
@@ -43,6 +43,24 @@ async function publish(
     console.log(error)
     logError("ntfy publish error", error);
   }
+}
+
+/**
+ * Encodes a header value for safe transport as an HTTP header.
+ *
+ * HTTP header values may only contain Latin-1 (byte) characters, but our
+ * titles contain emoji (✅, ❌, 📋 …). ntfy supports RFC 2047 encoded-words
+ * for non-ASCII header values, so we base64-encode as UTF-8 when needed and
+ * leave plain-ASCII titles untouched.
+ *
+ * @see https://docs.ntfy.sh/publish/#unicode-in-header-fields
+ */
+function encodeHeader(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7F]*$/.test(value)) {
+    return value;
+  }
+  return `=?UTF-8?B?${Buffer.from(value, "utf-8").toString("base64")}?=`;
 }
 
 function istTimestamp(): string {
