@@ -64,6 +64,20 @@ interface AppConfig {
    */
   HEADLESS: boolean;
 
+  /**
+   * Maximum random delay (in minutes) applied to scheduled login/logout runs
+   * so executions do not fire at a fixed, predictable time every day.
+   *
+   * Parsed from the `USE_TIME_RANDOMIZATION` environment variable:
+   * - unset / `"false"` / invalid → `0` (disabled — exact scheduled times).
+   * - `"true"` → `15` (the default maximum window).
+   * - a positive number (e.g. `"30"`) → that many minutes.
+   *
+   * Only consumed in cron mode; server mode relies on the external scheduler
+   * for trigger timing.
+   */
+  TIME_RANDOMIZATION_MAX_MINUTES: number;
+
   /** SMTP server hostname used for failure email alerts (e.g. `smtp.gmail.com`). */
   SMTP_HOST: string | undefined;
 
@@ -164,6 +178,57 @@ if (
  * await page.goto(config.GREYTHR_URL);
  * ```
  */
+// --- USE_TIME_RANDOMIZATION parsing ---
+
+/** Default maximum random delay (in minutes) when `USE_TIME_RANDOMIZATION=true`. */
+const DEFAULT_RANDOMIZATION_MAX_MINUTES = 15;
+
+/**
+ * Parses the `USE_TIME_RANDOMIZATION` environment variable into a maximum
+ * random delay window in minutes.
+ *
+ * Accepted values (case-insensitive, whitespace-trimmed):
+ * - `"true"` → {@link DEFAULT_RANDOMIZATION_MAX_MINUTES} (15 minutes).
+ * - a positive number (e.g. `"10"`, `"30"`) → that number of minutes.
+ * - `"false"`, unset, or empty → `0` (feature disabled).
+ * - anything else (zero, negative, non-numeric) → `0`, with a warning.
+ *
+ * Invalid values warn instead of exiting the process because randomization is
+ * an optional enhancement — the scheduler can safely fall back to running at
+ * the exact scheduled times.
+ *
+ * @param rawValue - The raw `USE_TIME_RANDOMIZATION` value from `process.env`.
+ * @returns The maximum random delay in minutes; `0` means disabled.
+ */
+function parseTimeRandomization(rawValue: string | undefined): number {
+  const value = rawValue?.trim().toLowerCase();
+
+  // Unset, empty, or explicitly disabled → exact scheduled times.
+  if (!value || value === "false") {
+    return 0;
+  }
+
+  // Explicitly enabled without a custom limit → default window.
+  if (value === "true") {
+    return DEFAULT_RANDOMIZATION_MAX_MINUTES;
+  }
+
+  // Numeric value → custom maximum delay window in minutes. Number() (rather
+  // than parseInt) rejects trailing garbage like "10abc" instead of silently
+  // truncating it to 10.
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric;
+  }
+
+  console.error(
+    `Warning: USE_TIME_RANDOMIZATION has invalid value "${rawValue}". ` +
+      'Expected "true", "false", or a positive number of minutes. ' +
+      "Time randomization is disabled.",
+  );
+  return 0;
+}
+
 // --- PORT validation ---
 const portValue = process.env.PORT?.trim();
 const port = portValue ? Number.parseInt(portValue, 10) : 8080;
@@ -191,6 +256,9 @@ const appConfig: AppConfig = {
   PORT: port,
   MODE: appMode,
   HEADLESS: process.env.HEADLESS === "true",
+  TIME_RANDOMIZATION_MAX_MINUTES: parseTimeRandomization(
+    process.env.USE_TIME_RANDOMIZATION,
+  ),
   SMTP_HOST: process.env.SMTP_HOST,
   SMTP_USER: process.env.SMTP_USER,
   SMTP_PORT: smtpPort,

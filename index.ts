@@ -361,6 +361,72 @@ async function runLogoutFlow(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Time randomization
+// ---------------------------------------------------------------------------
+
+/**
+ * Computes a random delay in milliseconds for a scheduled flow trigger.
+ *
+ * When time randomization is enabled (via the `USE_TIME_RANDOMIZATION`
+ * environment variable, parsed into `config.TIME_RANDOMIZATION_MAX_MINUTES`),
+ * scheduled runs are offset by a uniformly distributed random delay so the
+ * exact execution time varies each day, simulating human behaviour instead of
+ * firing at a fixed, predictable time.
+ *
+ * @returns A delay in whole milliseconds within `[0, max minutes)`; always
+ *   `0` when randomization is disabled (`TIME_RANDOMIZATION_MAX_MINUTES` is 0).
+ */
+function getRandomDelayMs(): number {
+  // A disabled or invalid USE_TIME_RANDOMIZATION parses to 0 in env.ts, so a
+  // non-positive maximum means "no delay — run at the exact scheduled time".
+  if (config.TIME_RANDOMIZATION_MAX_MINUTES <= 0) {
+    return 0;
+  }
+
+  // Math.random() yields a uniform float in [0, 1). Multiplying by the
+  // maximum window (converted from minutes to milliseconds) produces a
+  // uniform delay in [0, max minutes). Math.floor keeps the value integral
+  // for setTimeout.
+  return Math.floor(
+    Math.random() * config.TIME_RANDOMIZATION_MAX_MINUTES * 60_000,
+  );
+}
+
+/**
+ * Runs a scheduled flow, optionally deferred by the random delay from
+ * {@link getRandomDelayMs}. Invoked by the node-cron callbacks for both the
+ * login and logout schedules.
+ *
+ * When randomization is disabled the delay is `0` and the flow starts
+ * immediately (on the next macrotask tick), preserving the original
+ * fixed-time behaviour.
+ *
+ * @param flowName - Human-readable flow label used in logs (e.g. `"Login Flow"`).
+ * @param flow - The flow function to execute after the delay.
+ */
+function triggerFlowWithRandomDelay(
+  flowName: string,
+  flow: () => Promise<void>,
+): void {
+  const delayMs = getRandomDelayMs();
+
+  if (delayMs > 0) {
+    const delayMinutes = (delayMs / 60_000).toFixed(1);
+    console.log(
+      `Time randomization: delaying ${flowName} by ${delayMinutes} minute(s).`,
+    );
+    logStatus(
+      `Time randomization: delaying ${flowName} by ${delayMinutes} minute(s).`,
+    );
+  }
+
+  setTimeout(() => {
+    logStatus(`Triggering scheduled ${flowName}...`);
+    flow().catch((err) => logError(`Error in scheduled ${flowName}`, err));
+  }, delayMs);
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -380,6 +446,9 @@ async function runLogoutFlow(): Promise<void> {
  * **Scheduler mode (no flags):**
  * - Registers two `node-cron` jobs using the cron expressions from
  *   `config.LOGIN_TIME` and `config.LOGOUT_TIME` (sourced from `.env`).
+ * - When `USE_TIME_RANDOMIZATION` is enabled, each trigger is deferred by a
+ *   random delay via {@link triggerFlowWithRandomDelay} so runs do not fire
+ *   at fixed, predictable times.
  * - Starts writing a heartbeat file every 60 seconds via
  *   {@link writeHeartbeat} so Docker's `HEALTHCHECK` can verify the process
  *   is alive without launching Chromium.
@@ -433,25 +502,34 @@ const main = async (): Promise<void> => {
 
     console.log(`Starting automation for ${config.GREYTHR_USERNAME}`);
 
+    // Log the time randomization state so operators can tell from the logs
+    // whether scheduled runs will be offset or fire at exact times.
+    if (config.TIME_RANDOMIZATION_MAX_MINUTES > 0) {
+      console.log(
+        `Time randomization enabled: scheduled runs delayed by up to ${config.TIME_RANDOMIZATION_MAX_MINUTES} minute(s).`,
+      );
+      logStatus(
+        `Time randomization enabled: scheduled runs delayed by up to ${config.TIME_RANDOMIZATION_MAX_MINUTES} minute(s).`,
+      );
+    } else {
+      logStatus(
+        "Time randomization disabled: scheduled runs fire at exact times.",
+      );
+    }
+
     // Schedule Login Flow
     console.log(`Scheduling Login Flow for: ${config.LOGIN_TIME}`);
     logStatus(`Scheduling Login Flow for: ${config.LOGIN_TIME}`);
-    cron.schedule(config.LOGIN_TIME, () => {
-      logStatus("Triggering scheduled Login Flow...");
-      runLoginFlow().catch((err) =>
-        logError("Error in scheduled Login Flow", err),
-      );
-    });
+    cron.schedule(config.LOGIN_TIME, () =>
+      triggerFlowWithRandomDelay("Login Flow", runLoginFlow),
+    );
 
     // Schedule Logout Flow
     console.log(`Scheduling Logout Flow for: ${config.LOGOUT_TIME}`);
     logStatus(`Scheduling Logout Flow for: ${config.LOGOUT_TIME}`);
-    cron.schedule(config.LOGOUT_TIME, () => {
-      logStatus("Triggering scheduled Logout Flow...");
-      runLogoutFlow().catch((err) =>
-        logError("Error in scheduled Logout Flow", err),
-      );
-    });
+    cron.schedule(config.LOGOUT_TIME, () =>
+      triggerFlowWithRandomDelay("Logout Flow", runLogoutFlow),
+    );
 
     // Write a heartbeat file every minute so the Docker healthcheck can verify
     // the scheduler is alive without launching a full Chromium browser.

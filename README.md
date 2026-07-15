@@ -52,6 +52,7 @@ This project automates the login, logout, and attendance workflows for the Greyt
    | `PORT` | No | Port the Express server listens on. Defaults to `8080`. | `8080` |
    | `LOGIN_TIME` | In cron mode | Cron expression for the daily check-in run | `0 9 * * 1-5` (9:00 AM Mon–Fri) |
    | `LOGOUT_TIME` | In cron mode | Cron expression for the daily check-out run | `0 18 * * 1-5` (6:00 PM Mon–Fri) |
+   | `USE_TIME_RANDOMIZATION` | No | Adds a random delay to scheduled runs (cron mode only). `false`/unset disables; `true` delays 0–15 min; a number (e.g. `30`) delays 0–N min. See [Time Randomization](#time-randomization). | `true` |
    | `HEADLESS` | No | Run Chromium in headless mode (`true`/`false`) | `true` |
    | `NTFY_TOPIC` | No | ntfy topic name for push notifications | `greythr-alerts-abc123` |
    | `NTFY_URL` | No | ntfy server base URL. Defaults to `https://ntfy.sh` | `https://ntfy.example.com` |
@@ -144,7 +145,20 @@ The application runs indefinitely and triggers login/logout on the configured cr
 ```
 MODE=cron  (default)
 Requires: LOGIN_TIME, LOGOUT_TIME
+Optional: USE_TIME_RANDOMIZATION
 ```
+
+#### Time Randomization
+
+Running check-in/check-out at the exact same second every day looks robotic. Set `USE_TIME_RANDOMIZATION` to offset each scheduled run by a random delay, so the actual execution time varies slightly each day and simulates human behaviour.
+
+| Value | Behaviour |
+| :--- | :--- |
+| unset / `false` / invalid | Disabled — runs fire at the exact scheduled times |
+| `true` | Random delay between 0 and 15 minutes (default maximum) |
+| a positive number, e.g. `30` | Random delay between 0 and that many minutes |
+
+The delay is drawn independently for each trigger (login and logout), so the two runs shift by different amounts. The cron expressions in `LOGIN_TIME`/`LOGOUT_TIME` still define the *earliest* possible run time — schedule them accordingly. The chosen delay is written to the status log on every trigger. This setting has no effect in server mode, where an external scheduler controls trigger timing.
 
 ### Server Mode (stateless / cloud)
 
